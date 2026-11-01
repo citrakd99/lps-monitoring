@@ -154,4 +154,4 @@ Aturan: perubahan terakhir (`_u` terbesar) menang per record; perangkat menarik 
    `python lps-pwa/tools/export_excel.py "LPS - WEEKLY - BATIK PROJECT - INTERNAL.xlsx"`
 2. Jalankan lokal: `python -m http.server 8080 -d lps-pwa/app` → buka `http://localhost:8080`
 3. Jika file aplikasi (`app.js`, `app.css`, `index.html`) diubah, naikkan versi `CACHE` di `sw.js` (mis. `lps-batik-v2`) agar HP mengambil versi baru.
-4. Hosting: repo GitHub `citrakd99/lps-monitoring`, folder `app/` terbit otomatis ke https://citrakd99.github.io/lps-monitoring/ (workflow `.github/workflows/pages.yml`). `app/data/seed.json` sengaja tidak ikut: versi publik memuat jadwal dari tab Master setelah kode akses diisi, jadi jalankan `push_master.py` setiap jadwal Excel berubah.
+4. Hosting: repo GitHub `citrakd99/lps-monitoring`, folder `app/` terbit otomatis ke https://citrakd99.github.io/lps-monitoring/ (cabang `gh-pages` = isi folder `app/`, lihat README.md). `app/data/seed.json` sengaja tidak ikut: versi publik memuat jadwal dari tab Master setelah kode akses diisi, jadi jalankan `push_master.py` setiap jadwal Excel berubah.

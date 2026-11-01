@@ -13,6 +13,10 @@ Aplikasi ringan (PWA, bisa di-install di HP, jalan offline) untuk monitoring Kom
    python tools/push_master.py <URL_WEB_APP_/exec> <KODE_AKSES> --nama "Admin"
    ```
    HP mengambil jadwal baru otomatis pada sinkron berikutnya.
-3. Perubahan kode aplikasi: naikkan `CACHE` di `app/sw.js`, lalu push ke `main` – GitHub Actions menerbitkan ulang `app/`.
+3. Perubahan kode aplikasi: naikkan `CACHE` di `app/sw.js`, commit, lalu terbitkan ulang folder `app/` ke cabang `gh-pages`:
+   ```bash
+   git push origin main
+   git push origin "$(git subtree split --prefix app main)":refs/heads/gh-pages --force
+   ```
 
 Peta Excel → aplikasi: [PETA-EXCEL-KE-APLIKASI.md](PETA-EXCEL-KE-APLIKASI.md).
