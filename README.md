@@ -1,0 +1,18 @@
+# LPS Monitoring – PWA Last Planner System
+
+Aplikasi ringan (PWA, bisa di-install di HP, jalan offline) untuk monitoring Komitmen, Make Ready, Daily Log, dan PPC.
+
+- Aplikasi: https://citrakd99.github.io/lps-monitoring/
+- Data proyek **tidak** ada di repo ini. Jadwal dan data lapangan disimpan di Google Sheet tim dan baru dimuat setelah URL Web App + kode akses tim diisi di ⚙.
+
+## Untuk admin
+1. Pasang API sinkron sekali: [gas/README.md](gas/README.md).
+2. Tiap jadwal Excel berubah:
+   ```bash
+   python tools/export_excel.py "LPS - WEEKLY - BATIK PROJECT - INTERNAL.xlsx"
+   python tools/push_master.py <URL_WEB_APP_/exec> <KODE_AKSES> --nama "Admin"
+   ```
+   HP mengambil jadwal baru otomatis pada sinkron berikutnya.
+3. Perubahan kode aplikasi: naikkan `CACHE` di `app/sw.js`, lalu push ke `main` – GitHub Actions menerbitkan ulang `app/`.
+
+Peta Excel → aplikasi: [PETA-EXCEL-KE-APLIKASI.md](PETA-EXCEL-KE-APLIKASI.md).

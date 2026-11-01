@@ -1,0 +1,5 @@
+# Data proyek internal – JANGAN di-commit (repo & situs publik). Jadwal ke tim lewat tools/push_master.py
+app/data/
+*.xlsx
+*.xlsm
+__pycache__/
