@@ -48,7 +48,7 @@ def main():
         sys.exit(__doc__)
     m = re.search(r"https?://\S+", args[0])  # toleran: spasi/teks lain ikut tertempel di argumen URL
     if not m:
-        sys.exit(f"Argumen pertama harus URL Web App (https://script.google.com/macros/s/…/exec), bukan: {args[0]!r}")
+        sys.exit(f"Argumen pertama harus URL Web App (https://script.google.com/macros/s/.../exec), bukan: {args[0]!r}")
     url, key = m.group(0).strip("\"'"), args[1].strip()
     seed_path = Path(args[2]) if len(args) > 2 else Path(__file__).resolve().parent.parent / "app" / "data" / "seed.json"
     seed = json.loads(seed_path.read_text(encoding="utf-8"))
