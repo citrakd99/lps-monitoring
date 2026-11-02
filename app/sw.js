@@ -1,11 +1,12 @@
 // Service worker: shell cache-first, seed.json network-first (agar data Excel terbaru terambil saat online).
 // seed.json tidak ada di hosting publik, jadi tidak masuk SHELL (addAll gagal bila satu file 404).
-const CACHE = 'lps-batik-v4';
+const CACHE = 'lps-batik-v5';
 const SHELL = ['./', 'index.html', 'app.css', 'app.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache: 'reload' = lewati HTTP cache browser (GitHub Pages max-age 10 menit), agar versi baru tidak menyimpan file lama
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
