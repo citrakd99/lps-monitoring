@@ -9,7 +9,9 @@ Yang dikirim:
   - tasks / daily dari Excel yang BELUM ada di Sheet (data lapangan di Sheet tidak ditimpa)
 """
 import json
+import re
 import sys
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,8 +23,15 @@ def post(url, body):
     # text/plain = "simple request" seperti di aplikasi. Apps Script membalas 302; urllib mengikutinya sebagai GET.
     req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"),
                                  headers={"Content-Type": "text/plain;charset=utf-8"})
-    with urllib.request.urlopen(req, timeout=120) as r:
-        res = json.loads(r.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            text = r.read().decode("utf-8")
+    except urllib.error.URLError as e:
+        sys.exit(f"Tidak bisa menghubungi {url}: {e.reason} (cek internet/DNS/VPN dan URL Web App)")
+    try:
+        res = json.loads(text)
+    except ValueError:
+        sys.exit("Balasan bukan JSON – cek URL berakhiran /exec dan deploy Web App dengan akses 'Anyone'.\n" + text[:300])
     if not res.get("ok"):
         sys.exit("Ditolak server: " + str(res.get("error")))
     return res
@@ -37,7 +46,10 @@ def main():
         del args[i:i + 2]
     if len(args) < 2:
         sys.exit(__doc__)
-    url, key = args[0], args[1]
+    m = re.search(r"https?://\S+", args[0])  # toleran: spasi/teks lain ikut tertempel di argumen URL
+    if not m:
+        sys.exit(f"Argumen pertama harus URL Web App (https://script.google.com/macros/s/…/exec), bukan: {args[0]!r}")
+    url, key = m.group(0).strip("\"'"), args[1].strip()
     seed_path = Path(args[2]) if len(args) > 2 else Path(__file__).resolve().parent.parent / "app" / "data" / "seed.json"
     seed = json.loads(seed_path.read_text(encoding="utf-8"))
 
