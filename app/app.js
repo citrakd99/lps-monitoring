@@ -173,7 +173,9 @@ function applyRemote(res, force) {
 }
 async function post(payload) {
   // body string → Content-Type text/plain: "simple request", tanpa preflight CORS (wajib untuk Apps Script)
-  const r = await fetch(D.sync.url, { method: 'POST', body: JSON.stringify(payload), redirect: 'follow' });
+  let r;
+  try { r = await fetch(D.sync.url, { method: 'POST', body: JSON.stringify(payload), redirect: 'follow' }); }
+  catch (e) { throw new Error(navigator.onLine ? 'server sinkron tidak terjangkau – cek URL Web App / DNS / VPN' : 'offline'); }
   if (!r.ok) throw new Error('HTTP ' + r.status);
   const j = await r.json();
   if (!j.ok) throw new Error(j.error || 'server menolak');
@@ -714,7 +716,8 @@ document.addEventListener('click', e => {
         D.settings.tglMode = fd.get('tglMode');
         D.settings.tglFixed = fd.get('tglFixed') || null;
         D.meta.targetPPC = Math.max(0, Math.min(100, +fd.get('targetPPC') || 80)) / 100;
-        const S = D.sync, url = fd.get('syncUrl').trim(), key = fd.get('syncKey').trim(), user = fd.get('syncUser').trim();
+        const S = D.sync, key = fd.get('syncKey').trim(), user = fd.get('syncUser').trim();
+        const url = fd.get('syncUrl').replace(/[\s\u200B-\u200D\u2060\uFEFF]/g, ''); // spasi & karakter tak terlihat dari copy-paste
         if (url && (!/^https?:\/\//.test(url) || !key || !user)) { toast('Isi URL (https://…), kode akses & nama untuk sinkron'); return; }
         if (url !== S.url || key !== S.key) { S.rev = 0; S.masterVer = ''; S.error = ''; } // sambungan baru: tarik data tim dulu
         Object.assign(S, { url, key, user });
