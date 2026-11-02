@@ -184,3 +184,5 @@ dialog::backdrop { background: rgba(10,15,20,.5); }
   .kpi b { font-size: 22px; }
   .tabs a { font-size: 10px; }
 }
+
+[hidden] { display: none !important; }
