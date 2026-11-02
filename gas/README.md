@@ -8,7 +8,7 @@
    (Bisa juga dilihat/diganti di ⚙ Project Settings → Script Properties → `TEAM_KEY`.)
 
 Sheet akan berisi tab **Tasks**, **DailyLog**, **Master** (jadwal dari Excel), dan **Log** (riwayat siapa mengubah apa).
-Jika script lama sudah terpasang, tempel versi baru lalu jalankan `setup()` sekali lagi agar tab **Master** dibuat.
+**Memperbarui script yang sudah terpasang** (mis. setelah daily log memakai bobot & % tercapai): tempel `Code.gs` terbaru → jalankan `setup()` sekali lagi (menambah tab **Master** & kolom `bobot`, `capaian` di DailyLog) → **Deploy → Manage deployments → Edit → Version: New version** (URL tetap sama). `push_master.py` menolak jalan bila server masih versi lama.
 
 ## 2. Deploy sebagai Web App
 1. **Deploy → New deployment** → ikon roda → **Web app**.
@@ -24,7 +24,7 @@ Aplikasi di https://citrakd99.github.io/lps-monitoring/ tidak membawa data proye
 python tools/export_excel.py "LPS - WEEKLY - BATIK PROJECT - INTERNAL.xlsx"
 python tools/push_master.py <URL_WEB_APP_/exec> <KODE_AKSES> --nama "Admin"
 ```
-Ulangi setiap jadwal MASTER di Excel berubah. Task/daily log dari Excel hanya ditambahkan bila belum ada di Sheet; data lapangan tidak ditimpa.
+Ulangi setiap Excel berubah. Task dari Excel hanya ditambahkan bila belum ada di Sheet. Daily log asal Excel ditambah atau diperbarui mengikuti Excel; daily log yang diisi lewat aplikasi tidak disentuh.
 
 ## 4. Hubungkan aplikasi (tiap HP/laptop)
 Buka https://citrakd99.github.io/lps-monitoring/ di Chrome HP → **Isi kode akses**, lalu menu ⋮ → **Install app / Add to Home screen**.

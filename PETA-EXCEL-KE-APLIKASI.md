@@ -81,17 +81,20 @@ Di aplikasi, sheet **input** menjadi layar/form, sheet **otomatis** (board, reka
 | `catatanKendala` | | AF |
 | `penyebabTerlambat` | | AH |
 
-### 3.4 `daily[]` (Daily Log)
-| Field | Kolom |
-|---|---|
-| `id` | (dibuat app) |
-| `tgl` | A Tanggal |
-| `kode` | B Kode Task |
-| `target` | J Target Hari Ini |
-| `tercapai` | K Tercapai? (Ya/Tidak) |
-| `progress` | L Progress Kumulatif (0–100 %) |
-| `penyebab` | M Penyebab Tidak Tercapai |
-| `catatan` | N Catatan |
+### 3.4 `daily[]` (Daily Log, tabel `tblDaily`)
+Kolom dibaca **berdasarkan judul** (bukan huruf kolom), jadi sisipan kolom di Excel tidak merusak ekspor.
+
+| Field | Judul kolom Excel | Catatan |
+|---|---|---|
+| `id` | – | Dari Excel: `x<tanggal>_<kode>` (+`_2` bila task sama 2× sehari). Dari app: acak. |
+| `tgl` | Tanggal | |
+| `kode` | Kode Task | |
+| `target` | Target Hari Ini | pagi |
+| `bobot` | Bobot Target (% dari task) | pagi; Excel pecahan 0,2 → app 20 |
+| `capaian` | % Tercapai Harian | sore; Excel 0,5 → app 50 |
+| `penyebab` | Penyebab Tidak Tercapai | |
+| `catatan` | Catatan | |
+| *(dihitung)* | Tercapai?, Progress s/d Kemarin, Kontribusi Hari Ini, Progress Kumulatif, Cek | tidak disimpan |
 
 ### 3.5 Referensi
 | Field | Sumber |
@@ -107,14 +110,16 @@ Di aplikasi, sheet **input** menjadi layar/form, sheet **otomatis** (board, reka
 | Excel | Logika di app (`app.js`) |
 |---|---|
 | LPS Input!AI Status Kendala | `READY` bila tidak ada kendala `Pending`; selain itu `PENDING` |
-| LPS Input!AG Progress | `max(progress)` dari daily log task tsb |
+| Daily Log Tercapai? | % tercapai ≥ 100 → Ya, selain itu Tidak (kosong = belum lapor) |
+| Daily Log Kontribusi / Progress | kontribusi = bobot × % tercapai; s/d kemarin = Σ kontribusi task sama di tanggal sebelumnya; kumulatif = MIN(100, s/d kemarin + kontribusi) |
+| LPS Input!AG Progress | MAXIFS progress kumulatif daily log task tsb |
 | LPS Input!AJ Status Pelaksanaan | hanya untuk READY: progress ≥ 100 → `FINISH`; tglUpdate > rencana selesai → `LATE / DELAY`; selain itu `ON PROGRESS` |
 | Daftar Pekerjaan!M Status Jadwal | mulai > tglUpdate → Belum mulai; selesai < tglUpdate → Selesai (jadwal); selain itu Berjalan |
 | Daftar Pekerjaan!K/L Minggu | minggu terakhir yang `start ≤ tanggal` |
 | Follow Up Issue | semua kendala Pending, urut target; sisa hari = target − tglUpdate; status: On track / Hari ini / ⚠ LEWAT TARGET / belum ada target |
-| PPC Harian | tercapai ÷ dijanjikan per tanggal (belum lapor = belum tercapai) |
+| PPC Harian | tercapai ÷ dijanjikan per tanggal (belum lapor = belum tercapai); rata-rata % tercapai |
 | PPC Mingguan (Board 3) | FINISH ÷ Task Final (READY) per minggu |
-| Daily Log!O Cek | peringatan: task belum READY / target kosong / menunggu laporan sore / penyebab kosong |
+| Daily Log Cek | task belum READY / isi target & bobot / bobot > sisa task / menunggu laporan sore / isi penyebab |
 
 ## 5. Arsitektur aplikasi
 

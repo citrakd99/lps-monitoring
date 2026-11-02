@@ -29,7 +29,8 @@ var TABLES = {
   },
   daily: {
     sheet: 'DailyLog', key: 'id',
-    cols: ['id', 'tgl', 'kode', 'target', 'tercapai', 'progress', 'penyebab', 'catatan', '_u', '_by', '_del', '_rev']
+    // tercapai & progress = kolom model lama (kosong); bobot & capaian (%) ditambah di akhir agar baris lama tetap sejajar
+    cols: ['id', 'tgl', 'kode', 'target', 'tercapai', 'progress', 'penyebab', 'catatan', '_u', '_by', '_del', '_rev', 'bobot', 'capaian']
   }
 };
 

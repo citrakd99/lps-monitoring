@@ -117,23 +117,40 @@ def export(xlsx, out):
         t["catatanKendala"] = txt(g(lp, f"AF{r}"))
         t["penyebabTerlambat"] = txt(g(lp, f"AH{r}"))
 
-    # --- Daily Log ---
+    # --- Daily Log (tblDaily) – kolom dicari dari judulnya, jadi tahan bila kolom disisipkan ---
     dl = wb["Daily Log"]
-    daily = []
-    for i, r in enumerate(rows(dl, 5, "B")):
-        p = g(dl, f"L{r}")
+    hr = int("".join(ch for ch in dl.tables["tblDaily"].ref.split(":")[0] if ch.isdigit()))  # baris judul tabel
+    hdr = {}
+    for c in dl[hr]:  # kemunculan pertama = kolom tabel (judul yang sama di kanan = sumber dropdown)
+        if txt(c.value):
+            hdr.setdefault(txt(c.value), c.column)
+
+    def dv(r, name):
+        if name not in hdr:
+            sys.exit(f"Kolom '{name}' tidak ada di Daily Log (judul baris {hr})")
+        return dl.cell(r, hdr[name]).value
+
+    def pct100(v):  # Excel menyimpan persen sebagai pecahan (1 = 100%)
+        return None if v in (None, "") else round(num(v) * 100, 4)
+
+    daily, seen = [], {}
+    for r in rows(dl, hr + 1, "B"):
+        tgl_, kode_ = iso(dv(r, "Tanggal")), txt(dv(r, "Kode Task"))
+        n = seen[(tgl_, kode_)] = seen.get((tgl_, kode_), 0) + 1
         daily.append({
-            "id": f"d{i + 1}", "tgl": iso(g(dl, f"A{r}")), "kode": txt(g(dl, f"B{r}")),
-            "target": txt(g(dl, f"J{r}")), "tercapai": txt(g(dl, f"K{r}")),
-            # Excel menyimpan persen sebagai pecahan (1 = 100%)
-            "progress": None if p in (None, "") else round(num(p) * (100 if num(p) <= 1 else 1), 1),
-            "penyebab": txt(g(dl, f"M{r}")), "catatan": txt(g(dl, f"N{r}")),
+            # id stabil dari tanggal + kode (bukan nomor baris) agar baris sisipan tidak menggeser id
+            "id": f"x{tgl_}_{kode_}" + (f"_{n}" if n > 1 else ""), "tgl": tgl_, "kode": kode_,
+            "target": txt(dv(r, "Target Hari Ini")), "bobot": pct100(dv(r, "Bobot Target (% dari task)")),
+            "capaian": pct100(dv(r, "% Tercapai Harian")),
+            "penyebab": txt(dv(r, "Penyebab Tidak Tercapai")), "catatan": txt(dv(r, "Catatan")),
         })
 
     di = wb["Daftar Issue"]
     issues = {k: [txt(di.cell(r, i + 1).value) for r in range(5, di.max_row + 1) if txt(di.cell(r, i + 1).value)]
               for i, k in enumerate(KAT)}
-    penyebab = [txt(dl.cell(r, col("S")).value) for r in range(5, 60) if txt(dl.cell(r, col("S")).value)]
+    # daftar penyebab = kolom berjudul "Penyebab Tidak Tercapai" di luar tabel (sumber dropdown)
+    pc_ = next((c.column for c in dl[hr] if txt(c.value) == "Penyebab Tidak Tercapai" and c.column != hdr["Penyebab Tidak Tercapai"]), None)
+    penyebab = [txt(dl.cell(r, pc_).value) for r in range(hr + 1, hr + 60) if pc_ and txt(dl.cell(r, pc_).value)]
 
     seed = {
         "version": 1, "exportedAt": datetime.now().isoformat(timespec="seconds"), "source": Path(xlsx).name,

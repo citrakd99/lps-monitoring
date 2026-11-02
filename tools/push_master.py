@@ -6,7 +6,9 @@ Pemakaian (setelah export_excel.py):
 
 Yang dikirim:
   - master  : meta (minggu, kurva-S), pekerjaan, area, daftar issue, penyebab  → tab Master (ditimpa)
-  - tasks / daily dari Excel yang BELUM ada di Sheet (data lapangan di Sheet tidak ditimpa)
+  - tasks dari Excel yang BELUM ada di Sheet (task di Sheet tidak ditimpa)
+  - daily log dari Excel: baris baru ditambah, baris dari Excel yang isinya berubah diperbarui (Excel menang
+    untuk baris asal Excel; baris yang dibuat di aplikasi tidak disentuh). Baris ekspor model lama (id d1, d2, …) dihapus.
 """
 import json
 import re
@@ -16,6 +18,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+DAILY_F = ["tgl", "kode", "target", "bobot", "capaian", "penyebab", "catatan"]
 MASTER_F = ["meta", "pekerjaan", "areas", "areaMap", "issues", "penyebab", "disiplin", "source", "exportedAt"]
 
 
@@ -56,12 +59,30 @@ def main():
     team = post(url, {"key": key, "user": nama, "since": 0, "masterVer": "-"})
     now = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     body = {"key": key, "user": nama, "since": team["rev"], "master": {f: seed[f] for f in MASTER_F if f in seed}}
-    for t, k in (("tasks", "kode"), ("daily", "id")):
-        known = {str(r[k]) for r in team.get(t, [])}
-        body[t] = [{**r, "_u": now, "_by": nama} for r in seed.get(t, []) if str(r[k]) not in known]
+    known = {str(r["kode"]) for r in team.get("tasks", [])}
+    body["tasks"] = [{**r, "_u": now, "_by": nama} for r in seed.get("tasks", []) if str(r["kode"]) not in known]
+
+    sheet = {str(r["id"]): r for r in team.get("daily", [])}
+    if sheet and not any("bobot" in r for r in sheet.values()):
+        sys.exit("Code.gs di Google masih versi lama (belum ada kolom bobot/capaian). Tempel Code.gs terbaru, "
+                 "jalankan setup(), lalu Deploy > Manage deployments > Edit > Version: New version.")
+    def same(a, b):
+        return all(str(a.get(f) if a.get(f) is not None else "") == str(b.get(f) if b.get(f) is not None else "")
+                   or (f in ("bobot", "capaian") and a.get(f) not in (None, "") and b.get(f) not in (None, "")
+                       and abs(float(a[f]) - float(b[f])) < 1e-6)
+                   for f in DAILY_F)
+    body["daily"] = [{**r, "_u": now, "_by": nama} for r in seed.get("daily", [])
+                     if str(r["id"]) not in sheet or sheet[str(r["id"])].get("_del") == "TRUE" or not same(r, sheet[str(r["id"])])]
+    old = [{"id": i, "_del": True, "_u": now, "_by": nama} for i, r in sheet.items()
+           if re.fullmatch(r"d\d+", i) and r.get("_del") != "TRUE"]
+    body["daily"] += old
     res = post(url, body)
     print(f"Jadwal terunggah: {len(seed['meta']['weeks'])} minggu, {len(seed['pekerjaan'])} pekerjaan (versi {res['masterVer']}).")
-    print(f"Task baru dari Excel: {len(body['tasks'])}, daily log baru: {len(body['daily'])} (yang sudah ada di Sheet tidak diubah).")
+    n_new = sum(1 for r in body["daily"] if not r.get("_del") and str(r["id"]) not in sheet)
+    print(f"Task baru dari Excel: {len(body['tasks'])} (task yang sudah ada di Sheet tidak diubah).")
+    print(f"Daily log: {n_new} baru, {len(body['daily']) - n_new - len(old)} diperbarui dari Excel, {len(old)} baris model lama dihapus.")
+    if res.get("skipped"):
+        print(f"Catatan: {res['skipped']} record dilewati karena versi di Sheet lebih baru.")
 
 
 if __name__ == "__main__":
