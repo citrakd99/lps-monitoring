@@ -48,6 +48,8 @@ const progKum = x => Math.min(100, r6(progSebelum(x) + kontrib(x)));
 /* sisa bobot yang belum direncanakan = 100 − progress − bobot janji yang belum dilaporkan */
 const belumLapor = kode => r6(D.daily.reduce((s, y) => y.kode === kode && nOr(y.capaian) == null ? s + (nOr(y.bobot) || 0) : s, 0));
 const sisaRencana = kode => Math.max(0, r6(100 - (prog(kode) || 0) - belumLapor(kode)));
+/* Isian sore = actual progress hari ini (% dari task). Disimpan sebagai capaian = actual ÷ bobot (sama dgn "% Tercapai Harian" Excel) */
+const aktual = x => nOr(x.bobot) == null || nOr(x.capaian) == null ? null : r6(x.bobot * x.capaian / 100);
 const tercapai = x => nOr(x.capaian) == null ? '' : x.capaian >= 100 ? 'Ya' : 'Tidak';
 const pc = v => v == null ? '–' : (Math.round(v * 10) / 10) + '%';
 /* = MAXIFS(tblDaily[Progress Kumulatif], tblDaily[Kode Task], kode) */
@@ -522,9 +524,9 @@ function janjiCard(x, t, no, n) {
     <label class="f">Target hari ini (pagi)<input type="text" value="${esc(x.target)}" data-f="${f}target" class="${x.target ? '' : 'need'}"></label>
       <div class="frow">
         <label class="f">Bobot target (% dari task, pagi)<input type="number" min="0" max="100" step="any" inputmode="decimal" value="${x.bobot ?? ''}" data-f="${f}bobot" class="${x.bobot == null ? 'need' : x.bobot > sisaTask(x) + 0.01 ? 'over' : ''}"></label>
-        <label class="f">% tercapai harian (sore)<input type="number" min="0" max="200" step="any" inputmode="decimal" value="${x.capaian ?? ''}" data-f="${f}capaian"></label>
+        <label class="f">Actual progress hari ini (% dari task, sore)<input type="number" min="0" max="100" step="any" inputmode="decimal" value="${aktual(x) ?? ''}" data-f="${f}aktual" ${x.bobot == null ? 'disabled placeholder="isi bobot dulu"' : ''}></label>
       </div>
-      <p class="muted" style="font-size:13px;margin:0 0 8px">Progress s/d kemarin ${pc(kem)}${samaHari(x).length ? ` + janji lain hari ini ${pc(lain)}` : ''} + kontribusi ${pc(kontrib(x))} = <b>kumulatif ${pc(progKum(x))}</b> · sisa task ${pc(Math.max(0, sisaTask(x)))}</p>
+      <p class="muted" style="font-size:13px;margin:0 0 8px">${x.capaian == null ? '' : `Tercapai ${pc(x.capaian)} dari target (actual ${pc(aktual(x))} ÷ bobot ${pc(x.bobot)}) · `}Progress s/d kemarin ${pc(kem)}${samaHari(x).length ? ` + janji lain hari ini ${pc(lain)}` : ''} + actual ${pc(kontrib(x))} = <b>kumulatif ${pc(progKum(x))}</b> · sisa task ${pc(Math.max(0, sisaTask(x)))}</p>
       ${tercapai(x) === 'Tidak' ? `<label class="f">Penyebab tidak tercapai<select data-f="${f}penyebab" class="${x.penyebab ? '' : 'need'}">${opt('', x.penyebab, '– pilih –')}${D.penyebab.map(p => opt(p, x.penyebab)).join('')}</select></label>` : ''}
       <div class="bar" style="margin:0"><input class="grow" type="text" placeholder="Catatan" value="${esc(x.catatan)}" data-f="${f}catatan"><button class="btn sm danger" data-act="daily-del" data-id="${x.id}">Hapus</button></div>
   </div>`;
@@ -659,7 +661,7 @@ function settingsForm() {
       <li><b>Jadwal</b>: lihat pekerjaan MASTER yang aktif (lookahead).</li>
       <li><b>Komitmen</b>: buat task detail, saat rapat mingguan tandai <b>Disepakati</b>.</li>
       <li><b>Make Ready</b>: cek 4 kendala; bila Pending wajib isi issue, PIC & target. Semua OK = <b>READY</b>.</li>
-      <li><b>Harian</b>: pagi isi janji, target & bobot (% dari task); sore isi % tercapai harian & penyebab bila &lt; 100%. Tercapai? & progress dihitung otomatis.</li>
+      <li><b>Harian</b>: pagi isi janji, target & bobot (% dari task); sore isi <b>actual progress hari ini (% dari task)</b> & penyebab bila actual &lt; bobot. % tercapai, Tercapai? & progress dihitung otomatis.</li>
       <li>Progress 100% = <b>FINISH</b>; lewat rencana selesai = <b>LATE / DELAY</b>. PPC = tercapai ÷ dijanjikan (target ≥ 80%).</li>
     </ol></details>
   <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Tutup</button><button value="save" class="btn pri">Simpan</button></div>`;
@@ -684,7 +686,7 @@ function exportCSV(what) {
       t.catatanKendala, prog(t.kode), t.penyebabTerlambat, t.disepakati === 'Ya' ? stK(t) : '', t.disepakati === 'Ya' ? stP(t) : '']);
     download(`LPS-Input_${tgl()}.csv`, csv([h, ...rows]), 'text/csv');
   } else {
-    const h = ['Tanggal', 'Kode Task', 'Target Hari Ini', 'Bobot Target (% dari task)', '% Tercapai Harian', 'Tercapai?', 'Progress s/d Kemarin', 'Kontribusi Hari Ini', 'Progress Kumulatif (%)', 'Penyebab Tidak Tercapai', 'Catatan'];
+    const h = ['Tanggal', 'Kode Task', 'Target Hari Ini', 'Bobot Target (% dari task)', '% Tercapai Harian (actual ÷ bobot)', 'Tercapai?', 'Progress s/d Kemarin', 'Kontribusi Hari Ini', 'Progress Kumulatif (%)', 'Penyebab Tidak Tercapai', 'Catatan'];
     const rows = [...D.daily].sort((a, b) => a.tgl.localeCompare(b.tgl)).map(x => [x.tgl, x.kode, x.target, x.bobot, x.capaian, tercapai(x), progKemarin(x), kontrib(x), progKum(x), x.penyebab, x.catatan]);
     download(`Daily-Log_${tgl()}.csv`, csv([h, ...rows]), 'text/csv');
   }
@@ -707,9 +709,9 @@ const REPORTS = {
         KK.filter(k => t.k[k].st === 'Pending').map(k => { const c = t.k[k]; return `${KAT[k]}: ${c.issue || '?'}${c.detail ? ' – ' + c.detail : ''} · ${c.pic || 'PIC?'} · ${fmt(c.target)}`; }).join('\n') || 'Semua OK',
         pc(prog(t.kode)), stP(t)] })) },
   harian: { title: 'Daily Commitment', date: true,
-    head: ['Kode', 'Uraian / lokasi', 'Target hari ini', 'Bobot', '% tercapai', 'Tercapai?', 'Progress kumulatif', 'Penyebab tidak tercapai', 'Catatan'],
+    head: ['Kode', 'Uraian / lokasi', 'Target hari ini', 'Bobot', 'Actual', '% tercapai', 'Tercapai?', 'Progress kumulatif', 'Penyebab tidak tercapai', 'Catatan'],
     rows: o => D.daily.filter(x => x.tgl === o.tgl).map(x => { const t = D.tasks.find(t => t.kode === x.kode); return { pic: picOf(t?.pic),
-      cells: [x.kode, [t?.uraian, t?.lokasi].filter(Boolean).join(' · '), x.target, pc(x.bobot), x.capaian == null ? '' : pc(x.capaian), tercapai(x),
+      cells: [x.kode, [t?.uraian, t?.lokasi].filter(Boolean).join(' · '), x.target, pc(x.bobot), x.capaian == null ? '' : pc(aktual(x)), x.capaian == null ? '' : pc(x.capaian), tercapai(x),
         x.capaian == null ? '' : pc(progKum(x)), x.penyebab, x.catatan] }; }) },
   issue: { title: 'Follow Up Issue / Kendala', week: true,
     head: ['Kode', 'Task', 'Kategori', 'Issue', 'Detail', 'Target', 'Sisa hari', 'Status'],
@@ -943,7 +945,12 @@ document.addEventListener('change', e => {
   if (el.type === 'date') v = v || null;
   if (el.type === 'number') v = v === '' ? null : Math.max(0, Math.min(+el.max || 100, +v));
   if (kind === 'task') { const t = D.tasks.find(x => x.kode === id); setPath(t, path, v); }
-  else if (kind === 'daily') setPath(D.daily.find(x => x.id === id), path, v);
+  else if (kind === 'daily') {
+    const x = D.daily.find(x => x.id === id);
+    if (path === 'aktual') x.capaian = v == null || !x.bobot ? null : r6(v / x.bobot * 100); // actual → % tercapai
+    else if (path === 'bobot') { const a = aktual(x); x.bobot = v; if (a != null) x.capaian = v ? r6(a / v * 100) : null; } // actual tetap
+    else setPath(x, path, v);
+  }
   save(); render();
 });
 // Pencarian langsung saat mengetik
