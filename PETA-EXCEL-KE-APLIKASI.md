@@ -140,6 +140,7 @@ lps-pwa/
 - **Tanpa framework/build** – HTML + JS murni (±60 KB), cepat di HP.
 - **Offline** – service worker meng-cache aplikasi; data tersimpan di `localStorage` perangkat.
 - **Sinkron data** – Excel tetap sumber jadwal: jalankan `export_excel.py`, lalu di app menu Data → "Muat ulang dari seed". Data lapangan bisa di-**Export JSON** (backup / kirim ke rekan) dan **Export CSV** (tempel balik ke Excel).
+- **PDF per PIC** – tombol *PDF per PIC* di Komitmen, Make Ready, Harian, dan Issue: pilih minggu/tanggal dan PIC (atau semua PIC, 1 halaman per PIC), lalu *Simpan sebagai PDF* dari jendela cetak browser. Komitmen/Make Ready/Harian dikelompokkan per PIC task, Issue per PIC kendala.
 - **Sinkron tim** – `tasks` dan `daily` disinkron ke Google Sheet (tab *Tasks*, *DailyLog*, *Log*) lewat Apps Script dengan satu kode akses tim. Pasang: [gas/README.md](gas/README.md).
 
 ### Peta data sinkron (Google Sheet)
