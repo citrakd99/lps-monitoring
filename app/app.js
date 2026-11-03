@@ -95,6 +95,14 @@ function ppcDay(date) {
   return { n: rows.length, ya, tidak: rows.filter(x => tercapai(x) === 'Tidak').length, ppc: rows.length ? ya / rows.length : null,
     rata: lap.length ? lap.reduce((s, x) => s + Math.min(100, +x.capaian), 0) / lap.length / 100 : null }; // rata-rata % tercapai
 }
+/* PPC janji = sheet "PPC Harian" bag. 2 (PPC MINGGUAN): tercapai ÷ dijanjikan dari Daily Log.
+   Janji bertanggal setelah tanggal update belum dihitung (direncanakan, belum waktunya). */
+function ppcJanji(w) {
+  const rows = D.daily.filter(x => x.tgl <= tgl() && (w === '' || weekOf(x.tgl) === +w));
+  const ya = rows.filter(x => tercapai(x) === 'Ya').length;
+  return { n: rows.length, ya, ppc: rows.length ? ya / rows.length : null };
+}
+/* = Board 3: task FINISH ÷ task Final (READY) */
 function ppcWeek(w) {
   const ts = D.tasks.filter(t => t.disepakati === 'Ya' && (w === '' || +t.minggu === +w) && stK(t) === 'READY');
   const fin = ts.filter(t => stP(t) === 'FINISH').length;
@@ -113,7 +121,7 @@ async function fetchSeed() {
 }
 const MASTER_F = ['meta', 'pekerjaan', 'areas', 'areaMap', 'issues', 'penyebab', 'disiplin', 'source', 'exportedAt'];
 const blank = () => ({ meta: { project: '', tglUpdate: null, targetPPC: 0.8, weeks: [], scurve: [] }, pekerjaan: [], areas: [], areaMap: {},
-  issues: Object.fromEntries(KK.map(k => [k, []])), penyebab: [], disiplin: ['CSA', 'MEP', 'ARS', 'PRELIM'], tasks: [], daily: [] });
+  issues: Object.fromEntries(KK.map(k => [k, []])), penyebab: [], disiplin: ['CSA', 'MEP', 'ARS', 'PRELIM'], tasks: [], daily: [], progress: [] });
 const hasMaster = () => D.meta.weeks.length > 0;
 function applyMaster(m) { // jadwal & referensi diganti; task, daily log, target PPC lokal dipertahankan
   const ppc = hasMaster() ? D.meta.targetPPC : m.meta.targetPPC;
@@ -143,6 +151,35 @@ function normTask(t) {
   t.inLPS = t.inLPS === true || t.inLPS === 'TRUE';
   return t;
 }
+/* actual progress mingguan (input manual): aktual = kumulatif proyek s/d minggu w (%) */
+function normProg(x) { x.w = +x.w; x.aktual = nOr(x.aktual); x.catatan = x.catatan ?? ''; return x; }
+const aktualW = w => D.progress.find(p => p.w === +w)?.aktual ?? null;
+const aktualTerakhir = w => D.progress.filter(p => p.aktual != null && p.w <= w).sort((a, b) => b.w - a.w)[0] || null;
+const dev = v => `<b style="color:var(--${v >= 0 ? 'ok' : 'bad'})">${v >= 0 ? '+' : ''}${(Math.round(v * 100) / 100).toFixed(2)}%</b>`;
+function aktualForm() {
+  const cw = weekOf(tgl()), S = D.meta.scurve.filter(s => s.w <= cw + 1);
+  return `<h3>Actual progress mingguan</h3>
+  <p class="muted" style="font-size:13px;margin-top:-4px">Isi <b>actual kumulatif proyek (%)</b> tiap minggu dari laporan progress mingguan. Kosongkan bila belum ada.</p>
+  <div class="scroll"><table class="tbl"><tr><th>Minggu</th><th class="n">Rencana kum.</th><th class="n">Actual kum. %</th><th class="n">Deviasi</th></tr>
+  ${S.map(s => { const a = aktualW(s.w); return `<tr${s.w === cw ? ' style="background:var(--warn-bg)"' : ''}><td>W${s.w}<br><small class="muted">${esc(weekObj(s.w)?.label || '')}</small></td><td class="n">${s.cum.toFixed(2)}%</td>
+    <td class="n"><input type="number" name="a_${s.w}" min="0" max="100" step="any" inputmode="decimal" value="${a ?? ''}" style="width:6.5em;text-align:right"></td><td class="n">${a == null ? '–' : dev(a - s.cum)}</td></tr>`; }).reverse().join('')}
+  </table></div>
+  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Simpan</button></div>`;
+}
+function simpanAktual(fd) {
+  let n = 0;
+  for (const s of D.meta.scurve) {
+    if (!fd.has('a_' + s.w)) continue;
+    const v = nOr(fd.get('a_' + s.w)), r = D.progress.find(p => p.w === s.w);
+    if (v == null) { if (r) { D.progress = D.progress.filter(p => p !== r); n++; } }
+    else if (!r) { D.progress.push({ w: s.w, aktual: Math.min(100, v), catatan: '' }); n++; }
+    else if (r.aktual !== v) { r.aktual = Math.min(100, v); n++; }
+  }
+  const a = D.progress.filter(p => p.aktual != null).sort((x, y) => x.w - y.w);
+  const turun = a.find((p, i) => i && p.aktual < a[i - 1].aktual);
+  save(); render();
+  toast(n ? `Actual progress disimpan (${n} minggu)${turun ? ` · ⚠ W${turun.w} lebih kecil dari minggu sebelumnya` : ''}` : 'Tidak ada perubahan');
+}
 function normDaily(x) {
   ['target', 'penyebab', 'catatan'].forEach(f => { x[f] = x[f] ?? ''; });
   x.bobot = nOr(x.bobot); x.capaian = nOr(x.capaian);
@@ -153,6 +190,7 @@ function normalize(s) {
   s.settings = s.settings || { tglMode: 'auto', tglFixed: null };
   s.sync = Object.assign({ url: '', key: '', user: '', rev: 0, masterVer: '', h: {}, dirty: {}, tomb: {}, lastOk: null, error: '' }, s.sync || {});
   s.tasks.forEach(normTask);
+  s.progress = (s.progress || []).map(normProg);
   (s.daily || []).forEach(x => { // migrasi model lama tidak dihitung sebagai perubahan (agar baris yang dihapus tim tidak terkirim balik)
     const id = 'daily:' + x.id, sama = s.sync.h[id] === recHash(x);
     normDaily(x);
@@ -168,7 +206,7 @@ function save() { stamp(); persist(); scheduleSync(); }
 /* ---------- sinkron tim (Google Sheets via Apps Script, lihat gas/Code.gs) ----------
    Setiap record (task / daily log) diberi _u (waktu ubah) & _by (nama). Perubahan dideteksi dengan
    membandingkan hash isi record, jadi semua aksi cukup memanggil save(). Konflik: _u terbaru menang. */
-const TBL = { tasks: 'kode', daily: 'id' };
+const TBL = { tasks: 'kode', daily: 'id', progress: 'w' };
 const canon = v => Array.isArray(v) ? '[' + v.map(canon).join(',') + ']'
   : v && typeof v === 'object' ? '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + canon(v[k])).join(',') + '}' : JSON.stringify(v ?? null);
 const recHash = r => { const { _u, _by, ...rest } = r; return canon(rest); };
@@ -195,6 +233,7 @@ let oldGas = false; // Code.gs di Google belum versi terbaru (kolom prioritas be
 function applyRemote(res, force) {
   const S = D.sync;
   let n = 0;
+  if (!('progress' in res)) oldGas = true; // server belum punya tabel Progress
   for (const [t, key] of Object.entries(TBL)) for (const r of res[t] || []) {
     const id = t + ':' + r[key], del = r._del === true || r._del === 'TRUE';
     delete r._del; delete r._rev;
@@ -203,7 +242,7 @@ function applyRemote(res, force) {
     if (t === 'tasks' && !del && !('prio' in r)) { PRIO_T.forEach(f => { r[f] = i >= 0 ? arr[i][f] : ''; }); oldGas = true; }
     if (del) { if (i >= 0) { arr.splice(i, 1); n++; } delete S.h[id]; }
     else {
-      const rec = t === 'tasks' ? normTask(r) : normDaily(r), h = recHash(rec);
+      const rec = ({ tasks: normTask, daily: normDaily, progress: normProg })[t](r), h = recHash(rec);
       if (S.h[id] !== h) n++;
       if (i >= 0) arr[i] = rec; else arr.push(rec);
       S.h[id] = h;
@@ -234,12 +273,12 @@ async function syncNow(manual) {
     const base = { key: S.key, user: S.user };
     const master = res => { if (res.master) { applyMaster(res.master); changed++; } if (res.masterVer) S.masterVer = res.masterVer; return res; };
     if (!S.rev) changed += applyRemote(master(await post({ ...base, since: 0, masterVer: S.masterVer })), true); // pertama kali: data tim menang
-    const sent = {}, body = { ...base, since: S.rev, masterVer: S.masterVer, tasks: [], daily: [] };
+    const sent = {}, body = { ...base, since: S.rev, masterVer: S.masterVer, ...Object.fromEntries(Object.keys(TBL).map(t => [t, []])) };
     for (const id of Object.keys(S.dirty)) { const l = localRec(id); if (l) { body[l.t].push(l.r); sent[id] = l.r._u; } else delete S.dirty[id]; }
     changed += applyRemote(master(await post(body)), false);
     for (const id in sent) { const l = localRec(id); if (!l || l.r._u === sent[id]) delete S.dirty[id]; }
     S.lastOk = new Date().toISOString(); S.error = '';
-    if (oldGas && !syncNow.warned) { syncNow.warned = true; toast('Prioritas belum ikut tersinkron: perbarui Code.gs di Google (lihat gas/README.md)'); }
+    if (oldGas && !syncNow.warned) { syncNow.warned = true; toast('Prioritas & actual progress belum ikut tersinkron: perbarui Code.gs di Google (lihat gas/README.md)'); }
     if (manual) toast(changed ? `Sinkron selesai · ${changed} perubahan dari tim` : 'Sinkron selesai');
   } catch (e) {
     S.error = e.message;
@@ -312,7 +351,8 @@ function vDash() {
   const by = s => ts.filter(t => stP(t) === s).length;
   const ready = ts.filter(t => stK(t) === 'READY').length;
   const pend = ts.length - ready;
-  const pw = ppcWeek(UI.week), pd = ppcDay(tgl()), tgt = D.meta.targetPPC;
+  const pw = ppcWeek(UI.week), pj = ppcJanji(UI.week), pd = ppcDay(tgl()), tgt = D.meta.targetPPC;
+  const cw = weekOf(tgl()), A = aktualTerakhir(UI.week === '' ? cw : +UI.week), planA = A && D.meta.scurve.find(s => s.w === A.w);
   const iss = issueList(), over = iss.filter(x => x.sisa != null && x.sisa < 0);
   const disc = [...new Set(D.tasks.map(t => t.disiplin).filter(Boolean))];
   const komitAll = D.tasks.filter(inWeek).length;
@@ -326,7 +366,9 @@ function vDash() {
     <div class="kpi"><b>${by('ON PROGRESS')}</b><span>On Progress</span></div>
     <div class="kpi bad"><b>${by('LATE / DELAY')}</b><span>Late / Delay</span></div>
     <div class="kpi info"><b>${by('FINISH')}</b><span>Finish</span></div>
-    <div class="kpi ${pw.ppc == null ? '' : pw.ppc >= tgt ? 'ok' : 'bad'}"><b>${pct(pw.ppc)}</b><span>PPC ${UI.week === '' ? 'total' : 'minggu ' + UI.week} (target ${pct(tgt)})</span></div>
+    <div class="kpi ${pj.ppc == null ? '' : pj.ppc >= tgt ? 'ok' : 'bad'}"><b>${pct(pj.ppc)}</b><span>PPC ${UI.week === '' ? 'total' : 'minggu ' + UI.week} · ${pj.ya}/${pj.n} janji tercapai (target ${pct(tgt)})</span></div>
+    <div class="kpi ${pw.ppc == null ? '' : pw.ppc >= tgt ? 'ok' : 'warn'}"><b>${pct(pw.ppc)}</b><span>Task Finish ÷ Final · ${pw.fin}/${pw.final}</span></div>
+    <div class="kpi ${!A ? '' : A.aktual >= (planA?.cum ?? 0) ? 'ok' : 'bad'}"><b>${A ? pc(A.aktual) : '–'}</b><span>${A ? `Actual s/d W${A.w} · rencana ${pc(planA?.cum)} · deviasi ${dev(A.aktual - (planA?.cum ?? 0))}` : 'Actual progress belum diisi'}</span></div>
     <div class="kpi ${pd.ppc == null ? '' : pd.ppc >= tgt ? 'ok' : 'bad'}"><b>${pct(pd.ppc)}</b><span>PPC hari ini · ${pd.ya}/${pd.n} janji</span></div>
     <div class="kpi ${fu.some(t => t.prio === 'Urgent') ? 'bad' : fu.length ? 'warn' : ''}"><b>${fu.length}</b><span>Perlu follow up (urgent / tinggi / koordinasi)</span></div>
   </div>
@@ -343,7 +385,7 @@ function vDash() {
   </div>` : ''}
 
   <div class="card">
-    <h3>Kurva-S rencana (MASTER)</h3>
+    <div class="vh"><h3 style="margin:0">Kurva-S rencana vs actual</h3><button class="btn sm" data-act="aktual">Input actual mingguan</button></div>
     ${sCurve()}
   </div>
 
@@ -388,12 +430,17 @@ function sCurve() {
     if (i % 3 === 0) g += `<text x="${x(i)}" y="${H - 10}" text-anchor="middle">W${s.w}</text>`;
   });
   g += `<polyline points="${S.map((s, i) => x(i) + ',' + y(s.cum)).join(' ')}" stroke="var(--plan)" stroke-width="2.5"/>`;
+  const act = D.progress.filter(p => p.aktual != null).sort((a, b) => a.w - b.w).map(p => ({ ...p, i: S.findIndex(s => s.w === p.w) })).filter(p => p.i >= 0);
+  if (act.length) {
+    g += `<polyline points="${act.map(p => x(p.i) + ',' + y(p.aktual)).join(' ')}" stroke="var(--ok)" stroke-width="2.5"/>`;
+    act.forEach(p => { g += `<circle cx="${x(p.i)}" cy="${y(p.aktual)}" r="3.5" fill="var(--ok)" stroke="var(--surface)" stroke-width="1.5"><title>W${p.w}: actual ${pc(p.aktual)} · rencana ${pc(S[p.i].cum)}</title></circle>`; });
+  }
   S.forEach((s, i) => { g += `<circle cx="${x(i)}" cy="${y(s.cum)}" r="6" fill="transparent" stroke="none"><title>W${s.w}: kumulatif ${s.cum.toFixed(2)}%</title></circle>`; });
   if (now) g += `<line x1="${x(ci)}" x2="${x(ci)}" y1="${T}" y2="${H - B}" stroke="var(--bad)" stroke-dasharray="4 3" stroke-width="1.5"/>
       <circle cx="${x(ci)}" cy="${y(now.cum)}" r="4.5" fill="var(--bad)" stroke="var(--surface)" stroke-width="2"/>
       <text x="${Math.min(x(ci) + 6, W - 120)}" y="${Math.max(y(now.cum) - 8, T + 10)}" style="fill:var(--text);font-weight:600">Rencana s/d W${now.w}: ${now.cum.toFixed(2)}%</text>`;
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Kurva S rencana">${g}</svg>
-    <div class="legend"><span><i style="background:var(--plan)"></i>Kumulatif rencana</span><span><i style="background:var(--brand-2);opacity:.55"></i>Rencana per minggu</span><span><i style="background:var(--bad)"></i>Minggu berjalan</span></div>`;
+    <div class="legend"><span><i style="background:var(--plan)"></i>Kumulatif rencana</span><span><i style="background:var(--ok)"></i>Kumulatif actual</span><span><i style="background:var(--brand-2);opacity:.55"></i>Rencana per minggu</span><span><i style="background:var(--bad)"></i>Minggu berjalan</span></div>`;
 }
 
 /* ---------- JADWAL (Daftar Pekerjaan + Lookahead) ---------- */
@@ -578,7 +625,7 @@ function vHarian() {
   const rows = D.daily.filter(x => x.tgl === d);
   const P = ppcDay(d), tgt = D.meta.targetPPC;
   const byKode = Object.fromEntries(D.tasks.map(t => [t.kode, t]));
-  const dates = [...new Set(D.daily.map(x => x.tgl))].sort().slice(-14);
+  const dates = [...new Set(D.daily.map(x => x.tgl))].filter(x => x <= tgl()).sort().slice(-14);
   const par = {};
   D.daily.filter(x => tercapai(x) === 'Tidak').forEach(x => { const k = x.penyebab || '(belum diisi)'; par[k] = (par[k] || 0) + 1; });
   const parL = Object.entries(par).sort((a, b) => b[1] - a[1]), parT = parL.reduce((s, x) => s + x[1], 0);
@@ -624,7 +671,7 @@ function vHarian() {
     <div class="card">
       <h3>PPC mingguan (Daily Log)</h3>
       <table class="tbl"><tr><th>Minggu</th><th class="n">Dijanjikan</th><th class="n">Tercapai</th><th class="n">PPC</th></tr>
-      ${weeks.map(w => { const r = D.daily.filter(x => weekOf(x.tgl) === w), y = r.filter(x => tercapai(x) === 'Ya').length; return `<tr><td>W${w}</td><td class="n">${r.length}</td><td class="n">${y}</td><td class="n"><b>${pct(r.length ? y / r.length : null)}</b></td></tr>`; }).join('') || '<tr><td colspan="4" class="muted">–</td></tr>'}
+      ${weeks.filter(w => w <= weekOf(tgl())).map(w => { const p = ppcJanji(w); return `<tr><td>W${w}</td><td class="n">${p.n}</td><td class="n">${p.ya}</td><td class="n"><b>${pct(p.ppc)}</b></td></tr>`; }).join('') || '<tr><td colspan="4" class="muted">–</td></tr>'}
       </table>
       <h3 style="margin-top:14px">Pareto penyebab tidak tercapai</h3>
       ${parL.length ? (() => { let cum = 0; return parL.map(([k, v]) => { cum += v; return `<div style="margin:6px 0"><div style="display:flex;justify-content:space-between;font-size:13px"><span>${esc(k)}</span><span class="muted">${v} · ${pct(v / parT)} · kum ${pct(cum / parT)}</span></div><div class="bar-h"><i style="width:${v / parL[0][1] * 100}%;background:var(--bad)"></i></div></div>`; }).join(''); })() : '<p class="muted">Belum ada penyebab tercatat.</p>'}
@@ -899,6 +946,7 @@ document.addEventListener('click', e => {
         if (syncOn()) syncNow(true);
       });
       break;
+    case 'aktual': openDlg(aktualForm(), simpanAktual); break;
     case 'fprio': UI.fPrio = el.dataset.v; if (el.tagName === 'A') break; render(); break; // <a> → hashchange render
     case 'pdf': {
       const r = el.dataset.r;

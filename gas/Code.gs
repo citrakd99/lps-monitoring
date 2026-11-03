@@ -28,6 +28,10 @@ var TABLES = {
       .concat(['catatanKendala', 'penyebabTerlambat', 'inLPS', '_u', '_by', '_del', '_rev'])
       .concat(['prio', 'koord', 'followup']) // prioritas: ditambah di akhir agar baris lama tetap sejajar
   },
+  progress: { // actual progress mingguan (kumulatif proyek, input manual)
+    sheet: 'Progress', key: 'w',
+    cols: ['w', 'aktual', 'catatan', '_u', '_by', '_del', '_rev']
+  },
   daily: {
     sheet: 'DailyLog', key: 'id',
     // tercapai & progress = kolom model lama (kosong); bobot & capaian (%) ditambah di akhir agar baris lama tetap sejajar
@@ -79,7 +83,11 @@ function handle_(b) {
     var logRows = [];
     Object.keys(TABLES).forEach(function (t) {
       var T = TABLES[t], sh = ss.getSheetByName(T.sheet);
-      if (!sh) throw new Error('Sheet ' + T.sheet + ' belum ada – jalankan setup()');
+      if (!sh) { // tabel baru setelah update script: buat otomatis
+        sh = ss.insertSheet(T.sheet);
+        sh.getRange(1, 1, 1, T.cols.length).setValues([T.cols]).setFontWeight('bold');
+        sh.setFrozenRows(1);
+      }
       var n = T.cols.length, last = sh.getLastRow();
       var rows = last > 1 ? sh.getRange(2, 1, last - 1, n).getValues() : [];
       var iKey = T.cols.indexOf(T.key), iU = T.cols.indexOf('_u'), iRev = T.cols.indexOf('_rev');
@@ -87,7 +95,7 @@ function handle_(b) {
       rows.forEach(function (r, i) { idx[String(r[iKey])] = i; });
       var changed = false;
       (b[t] || []).forEach(function (rec) {
-        var k = String(rec[T.key] || '');
+        var k = rec[T.key] == null ? '' : String(rec[T.key]); // kunci 0 (minggu W0) sah
         if (!k) return;
         var i = idx[k];
         if (i !== undefined && String(rows[i][iU]) >= String(rec._u || '')) { res.skipped++; return; } // server lebih baru

@@ -46,6 +46,7 @@ Di aplikasi, sheet **input** menjadi layar/form, sheet **otomatis** (board, reka
 | `targetPPC` | PPC Harian!C4 (0,8) |
 | `weeks[] {w, start, end, label}` | MASTER baris 8 (nomor), 9 (tanggal mulai), 10 (label "02 - 08"), kolom Y…BC |
 | `scurve[] {w, plan, cum}` | MASTER baris 2696 (PROGRESS PLAN) & 2697 (CUMULATIVE) kolom yang sama |
+| `progress[] {w, aktual}` | **Actual progress mingguan** (kumulatif %), diinput manual di Dashboard → *Input actual mingguan*; tab Sheet *Progress*. Opsional dari Excel: baris MASTER berjudul `CUMULATIVE PROGRESS ACTUAL` |
 
 ### 3.2 `pekerjaan[]` (Daftar Pekerjaan)
 | Field | Kolom | Catatan |
@@ -122,7 +123,8 @@ Kolom dibaca **berdasarkan judul** (bukan huruf kolom), jadi sisipan kolom di Ex
 | Daftar Pekerjaan!K/L Minggu | minggu terakhir yang `start ≤ tanggal` |
 | Follow Up Issue | semua kendala Pending, urut target; sisa hari = target − tglUpdate; status: On track / Hari ini / ⚠ LEWAT TARGET / belum ada target |
 | PPC Harian | tercapai ÷ dijanjikan per tanggal (belum lapor = belum tercapai); rata-rata % tercapai |
-| PPC Mingguan (Board 3) | FINISH ÷ Task Final (READY) per minggu |
+| PPC Harian bag. 2 PPC MINGGUAN | **PPC utama di Dashboard**: janji tercapai ÷ janji dari Daily Log per minggu (janji bertanggal setelah tanggal update belum dihitung) |
+| Board 3 PPC (Finish ÷ Final) | KPI terpisah *Task Finish ÷ Final* |
 | Daily Log Cek | task belum READY / isi target & bobot / bobot > sisa task / menunggu laporan sore / isi penyebab |
 
 ## 5. Arsitektur aplikasi

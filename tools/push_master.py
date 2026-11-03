@@ -64,8 +64,8 @@ def main():
 
     sheet = {str(r["id"]): r for r in team.get("daily", [])}
     if (sheet and not any("bobot" in r for r in sheet.values())) or \
-            (team.get("tasks") and not any("prio" in r for r in team["tasks"])):
-        sys.exit("Code.gs di Google masih versi lama (belum ada kolom bobot/capaian/prioritas). Tempel Code.gs terbaru, "
+            (team.get("tasks") and not any("prio" in r for r in team["tasks"])) or "progress" not in team:
+        sys.exit("Code.gs di Google masih versi lama (belum ada kolom bobot/capaian/prioritas/tabel Progress). Tempel Code.gs terbaru, "
                  "jalankan setup(), lalu Deploy > Manage deployments > Edit > Version: New version.")
     def same(a, b):
         return all(str(a.get(f) if a.get(f) is not None else "") == str(b.get(f) if b.get(f) is not None else "")
@@ -77,11 +77,19 @@ def main():
     old = [{"id": i, "_del": True, "_u": now, "_by": nama} for i, r in sheet.items()
            if re.fullmatch(r"d\d+", i) and r.get("_del") != "TRUE"]
     body["daily"] += old
+    # actual mingguan dari Excel (baris CUMULATIVE PROGRESS ACTUAL di MASTER, bila ada): Excel menang bila nilainya beda
+    prog_sheet = {str(r["w"]): r for r in team.get("progress", [])}
+    body["progress"] = [{**p, "_u": now, "_by": nama} for p in seed.get("progress", [])
+                        if str(p["w"]) not in prog_sheet or prog_sheet[str(p["w"])].get("_del") == "TRUE"
+                        or prog_sheet[str(p["w"])].get("aktual") in (None, "")
+                        or abs(float(prog_sheet[str(p["w"])]["aktual"]) - p["aktual"]) > 1e-6]
     res = post(url, body)
     print(f"Jadwal terunggah: {len(seed['meta']['weeks'])} minggu, {len(seed['pekerjaan'])} pekerjaan (versi {res['masterVer']}).")
     n_new = sum(1 for r in body["daily"] if not r.get("_del") and str(r["id"]) not in sheet)
     print(f"Task baru dari Excel: {len(body['tasks'])} (task yang sudah ada di Sheet tidak diubah).")
     print(f"Daily log: {n_new} baru, {len(body['daily']) - n_new - len(old)} diperbarui dari Excel, {len(old)} baris model lama dihapus.")
+    if body["progress"]:
+        print(f"Actual progress mingguan dari Excel: {len(body['progress'])} minggu diperbarui.")
     if res.get("skipped"):
         print(f"Catatan: {res['skipped']} record dilewati karena versi di Sheet lebih baru.")
 

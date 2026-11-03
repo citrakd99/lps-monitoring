@@ -69,6 +69,15 @@ def export(xlsx, out):
                       "label": txt(m.cell(10, c).value)})
         scurve.append({"w": w, "plan": round(num(m.cell(scurve_row, c).value), 4),
                        "cum": round(num(m.cell(scurve_row + 1, c).value), 4)})
+    # opsional: baris berjudul "CUMULATIVE PROGRESS ACTUAL" di MASTER kolom A (sejajar baris rencana) → actual mingguan
+    act_row = next((r for r in range(scurve_row, min(m.max_row, scurve_row + 15) + 1)
+                    if "ACTUAL" in txt(m.cell(r, 1).value).upper() and "CUMUL" in txt(m.cell(r, 1).value).upper()), None)
+    progress = []
+    if act_row:
+        for c in range(col("Y"), col("BC") + 1):
+            v, wk = m.cell(act_row, c).value, m.cell(8, c).value
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and isinstance(m.cell(9, c).value, datetime):
+                progress.append({"w": int(num(wk, 0)), "aktual": round(float(v), 4), "catatan": ""})
 
     # --- Area Gedung ---
     ag = wb["Area Gedung"]
@@ -163,7 +172,7 @@ def export(xlsx, out):
                  "targetPPC": num(g(wb["PPC Harian"], "C4"), 0.8), "weeks": weeks, "scurve": scurve},
         "disiplin": ["CSA", "MEP", "ARS", "PRELIM"], "areas": areas, "areaMap": area_map,
         "issues": issues, "penyebab": penyebab,
-        "pekerjaan": pekerjaan, "tasks": list(tasks.values()), "daily": daily,
+        "pekerjaan": pekerjaan, "tasks": list(tasks.values()), "daily": daily, "progress": progress,
     }
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     Path(out).write_text(json.dumps(seed, ensure_ascii=False, indent=1), encoding="utf-8")
