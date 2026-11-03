@@ -509,6 +509,27 @@ function vReady() {
   }).join('') || '<div class="empty">Belum ada task yang disepakati. Buka tab <a href="#komit">Komitmen</a>.</div>'}`;
 }
 
+/* kartu satu janji di dalam header task (Harian) */
+// = kolom Cek di Daily Log
+const cek = (x, t) => !t ? '⚠ Kode tidak ada' : stK(t) !== 'READY' ? '⚠ Task belum READY' : !x.target || x.bobot == null ? '⚠ Isi target & bobot'
+  : x.bobot > sisaTask(x) + 0.01 ? '⚠ Bobot > sisa task' : x.capaian == null ? 'Menunggu laporan sore'
+  : tercapai(x) === 'Tidak' && !x.penyebab ? '⚠ Isi penyebab' : 'OK';
+function janjiCard(x, t, no, n) {
+  const c = cek(x, t), f = `daily|${x.id}|`, kem = progKemarin(x), lain = r6(progSebelum(x) - kem);
+  return `<div class="janji">
+    <div class="hd"><b>Janji ${no}${n > 1 ? '/' + n : ''}</b>
+      <div class="chips">${stChip(tercapai(x))}<span class="chip ${c === 'OK' ? 'ok' : c.startsWith('⚠') ? 'warn' : ''}">${esc(c)}</span></div></div>
+    <label class="f">Target hari ini (pagi)<input type="text" value="${esc(x.target)}" data-f="${f}target" class="${x.target ? '' : 'need'}"></label>
+      <div class="frow">
+        <label class="f">Bobot target (% dari task, pagi)<input type="number" min="0" max="100" step="any" inputmode="decimal" value="${x.bobot ?? ''}" data-f="${f}bobot" class="${x.bobot == null ? 'need' : x.bobot > sisaTask(x) + 0.01 ? 'over' : ''}"></label>
+        <label class="f">% tercapai harian (sore)<input type="number" min="0" max="200" step="any" inputmode="decimal" value="${x.capaian ?? ''}" data-f="${f}capaian"></label>
+      </div>
+      <p class="muted" style="font-size:13px;margin:0 0 8px">Progress s/d kemarin ${pc(kem)}${samaHari(x).length ? ` + janji lain hari ini ${pc(lain)}` : ''} + kontribusi ${pc(kontrib(x))} = <b>kumulatif ${pc(progKum(x))}</b> · sisa task ${pc(Math.max(0, sisaTask(x)))}</p>
+      ${tercapai(x) === 'Tidak' ? `<label class="f">Penyebab tidak tercapai<select data-f="${f}penyebab" class="${x.penyebab ? '' : 'need'}">${opt('', x.penyebab, '– pilih –')}${D.penyebab.map(p => opt(p, x.penyebab)).join('')}</select></label>` : ''}
+      <div class="bar" style="margin:0"><input class="grow" type="text" placeholder="Catatan" value="${esc(x.catatan)}" data-f="${f}catatan"><button class="btn sm danger" data-act="daily-del" data-id="${x.id}">Hapus</button></div>
+  </div>`;
+}
+
 /* ---------- HARIAN (Daily Log + PPC Harian + Board 4) ---------- */
 function vHarian() {
   const d = UI.harianTgl || tgl();
@@ -521,10 +542,6 @@ function vHarian() {
   const parL = Object.entries(par).sort((a, b) => b[1] - a[1]), parT = parL.reduce((s, x) => s + x[1], 0);
   const weeks = [...new Set(D.daily.map(x => weekOf(x.tgl)))].sort((a, b) => a - b);
 
-  // = kolom Cek di Daily Log
-  const cek = (x, t) => !t ? '⚠ Kode tidak ada' : stK(t) !== 'READY' ? '⚠ Task belum READY' : !x.target || x.bobot == null ? '⚠ Isi target & bobot'
-    : x.bobot > sisaTask(x) + 0.01 ? '⚠ Bobot > sisa task' : x.capaian == null ? 'Menunggu laporan sore'
-    : tercapai(x) === 'Tidak' && !x.penyebab ? '⚠ Isi penyebab' : 'OK';
 
   return `
   ${vh('Daily commitment', 'harian')}
@@ -543,20 +560,19 @@ function vHarian() {
     <div class="kpi"><b>${pct(P.rata)}</b><span>Rata-rata % tercapai</span></div>
   </div>
   <div class="bar"><button class="btn pri" data-act="daily-new">+ Janji hari ini</button><button class="btn" data-act="daily-copy">Salin janji kemarin</button></div>
-  ${rows.map(x => {
-    const t = byKode[x.kode], c = cek(x, t), f = `daily|${x.id}|`, kem = progKemarin(x), lain = r6(progSebelum(x) - kem);
-    return `<div class="item">
-      <div class="hd"><div><span class="code">${esc(x.kode)}</span> <span class="ttl">${esc(t ? label(t) : '')}</span>
-        <div class="sub">${esc(t?.pekerjaan || '')}</div></div>
-        <div class="chips">${stChip(tercapai(x))}<span class="chip ${c === 'OK' ? 'ok' : c.startsWith('⚠') ? 'warn' : ''}">${esc(c)}</span></div></div>
-      <label class="f" style="margin-top:8px">Target hari ini (pagi)<input type="text" value="${esc(x.target)}" data-f="${f}target" class="${x.target ? '' : 'need'}"></label>
-      <div class="frow">
-        <label class="f">Bobot target (% dari task, pagi)<input type="number" min="0" max="100" step="any" inputmode="decimal" value="${x.bobot ?? ''}" data-f="${f}bobot" class="${x.bobot == null ? 'need' : x.bobot > sisaTask(x) + 0.01 ? 'over' : ''}"></label>
-        <label class="f">% tercapai harian (sore)<input type="number" min="0" max="200" step="any" inputmode="decimal" value="${x.capaian ?? ''}" data-f="${f}capaian"></label>
-      </div>
-      <p class="muted" style="font-size:13px;margin:0 0 8px">Progress s/d kemarin ${pc(kem)}${samaHari(x).length ? ` + janji lain hari ini ${pc(lain)}` : ''} + kontribusi ${pc(kontrib(x))} = <b>kumulatif ${pc(progKum(x))}</b> · sisa task ${pc(Math.max(0, sisaTask(x)))}</p>
-      ${tercapai(x) === 'Tidak' ? `<label class="f">Penyebab tidak tercapai<select data-f="${f}penyebab" class="${x.penyebab ? '' : 'need'}">${opt('', x.penyebab, '– pilih –')}${D.penyebab.map(p => opt(p, x.penyebab)).join('')}</select></label>` : ''}
-      <div class="bar" style="margin:0"><input class="grow" type="text" placeholder="Catatan" value="${esc(x.catatan)}" data-f="${f}catatan"><button class="btn sm danger" data-act="daily-del" data-id="${x.id}">Hapus</button></div>
+  ${[...new Set(rows.map(x => x.kode))].sort().map(kode => { // 1 header per task komitmen, berisi janji-janjinya hari ini
+    const t = byKode[kode], js = rows.filter(x => x.kode === kode).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    const lap = js.filter(x => tercapai(x)), ya = js.filter(x => tercapai(x) === 'Ya').length;
+    const pHari = Math.max(...js.map(progKum)), pAwal = progKemarin(js[0]), bobot = r6(js.reduce((s, x) => s + (nOr(x.bobot) || 0), 0));
+    const warn = js.filter(x => cek(x, t).startsWith('⚠')).length, sp = t ? stP(t) : '';
+    return `<div class="item grp" id="h-${esc(kode)}">
+      <div class="hd"><div><span class="code">${esc(kode)}</span> <span class="ttl">${esc(t?.uraian || '(task tidak ada)')}</span>
+        <div class="sub">${esc([t?.pekerjaan, t?.lokasi, t?.pic && 'PIC ' + t.pic].filter(Boolean).join(' · '))}</div></div>
+        <div class="chips"><span class="chip">${js.length} janji</span>${lap.length ? `<span class="chip ${ya === js.length ? 'ok' : 'bad'}">${ya}/${js.length} tercapai</span>` : '<span class="chip warn">belum lapor</span>'}${warn ? `<span class="chip warn">⚠ ${warn}</span>` : ''}${stChip(sp)}</div></div>
+      <div class="grp-prog"><div class="bar-h"><i style="width:${Math.min(pAwal, 100)}%"></i><i class="today" style="width:${Math.max(0, Math.min(pHari, 100) - Math.min(pAwal, 100))}%"></i></div>
+        <small class="muted">Progress ${pc(pAwal)} → <b>${pc(pHari)}</b> hari ini · bobot hari ini ${pc(bobot)} · rencana selesai ${fmt(t?.selesai)}</small></div>
+      ${js.map((x, i) => janjiCard(x, t, i + 1, js.length)).join('')}
+      <div class="bar" style="margin:8px 0 0"><button class="btn sm" data-act="daily-new" data-kode="${esc(kode)}">+ Janji untuk task ini</button></div>
     </div>`;
   }).join('') || '<div class="empty">Belum ada janji untuk tanggal ini.</div>'}
 

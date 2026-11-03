@@ -187,6 +187,14 @@ dialog::backdrop { background: rgba(10,15,20,.5); }
 
 [hidden] { display: none !important; }
 
+/* Harian: header task komitmen berisi beberapa janji */
+.grp-prog { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 4px; }
+.grp-prog .bar-h { display: flex; }
+.grp-prog .bar-h i { background: var(--brand); }
+.grp-prog .bar-h i.today { background: var(--brand-2); }
+.janji { border-left: 3px solid var(--line); padding: 8px 0 4px 10px; margin-top: 10px; }
+.janji .hd { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 14px; }
+
 /* dialog beberapa janji harian: tanggal · bobot · hapus / target (satu baris penuh) */
 .jr { display: grid; grid-template-columns: 1fr 6.5em auto; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .jr input[name=jtarget] { grid-column: 1 / -1; }
