@@ -40,7 +40,14 @@ const nOr = v => v === null || v === undefined || v === '' || isNaN(v) ? null : 
 const r6 = v => Math.round(v * 1e6) / 1e6;
 const kontrib = x => nOr(x.bobot) == null || nOr(x.capaian) == null ? 0 : r6(x.bobot * x.capaian / 100);
 const progKemarin = x => r6(D.daily.reduce((s, y) => y.kode === x.kode && y.tgl < x.tgl ? s + kontrib(y) : s, 0));
-const progKum = x => Math.min(100, r6(progKemarin(x) + kontrib(x)));
+// Beberapa janji untuk task yang sama di hari yang sama: janji sebelumnya (urut id, sama di semua perangkat) ikut dihitung
+const samaHari = x => D.daily.filter(y => y !== x && y.kode === x.kode && y.tgl === x.tgl && String(y.id) < String(x.id));
+const progSebelum = x => r6(progKemarin(x) + samaHari(x).reduce((s, y) => s + kontrib(y), 0));
+const sisaTask = x => r6(100 - progKemarin(x) - samaHari(x).reduce((s, y) => s + (nOr(y.bobot) || 0), 0)); // untuk cek bobot
+const progKum = x => Math.min(100, r6(progSebelum(x) + kontrib(x)));
+/* sisa bobot yang belum direncanakan = 100 − progress − bobot janji yang belum dilaporkan */
+const belumLapor = kode => r6(D.daily.reduce((s, y) => y.kode === kode && nOr(y.capaian) == null ? s + (nOr(y.bobot) || 0) : s, 0));
+const sisaRencana = kode => Math.max(0, r6(100 - (prog(kode) || 0) - belumLapor(kode)));
 const tercapai = x => nOr(x.capaian) == null ? '' : x.capaian >= 100 ? 'Ya' : 'Tidak';
 const pc = v => v == null ? '–' : (Math.round(v * 10) / 10) + '%';
 /* = MAXIFS(tblDaily[Progress Kumulatif], tblDaily[Kode Task], kode) */
@@ -478,7 +485,7 @@ function vReady() {
         <div class="sub">${esc(t.pekerjaan)}</div></div>
         <div class="chips">${stChip(stK(t))}${stChip(sp)}</div></div>
       <div class="meta"><span>W${t.minggu} · ${esc(t.disiplin)}</span><span>${esc(t.area)}${t.lokasi ? ' · ' + esc(t.lokasi) : ''}</span><span>PIC ${esc(t.pic || '–')}</span><span>${fmt(t.mulai)} → ${fmt(t.selesai)}</span></div>
-      <div style="display:flex;align-items:center;gap:8px;margin:8px 0"><div class="bar-h" style="flex:1"><i style="width:${Math.min(p || 0, 100)}%"></i></div><small class="muted">Progress ${p == null ? '0' : p}% (dari Daily Log)</small></div>
+      <div style="display:flex;align-items:center;gap:8px;margin:8px 0"><div class="bar-h" style="flex:1"><i style="width:${Math.min(p || 0, 100)}%"></i></div><small class="muted">Progress ${p == null ? '0' : p}% (dari Daily Log)</small>${stK(t) === 'READY' && sp !== 'FINISH' ? `<button class="btn sm" data-act="daily-new" data-kode="${esc(t.kode)}">+ Janji harian</button>` : ''}</div>
       ${KK.map(k => {
         const c = t.k[k], pend = c.st === 'Pending', f = `task|${esc(t.kode)}|k.${k}.`;
         const over = pend && c.target && c.target < d;
@@ -516,7 +523,7 @@ function vHarian() {
 
   // = kolom Cek di Daily Log
   const cek = (x, t) => !t ? '⚠ Kode tidak ada' : stK(t) !== 'READY' ? '⚠ Task belum READY' : !x.target || x.bobot == null ? '⚠ Isi target & bobot'
-    : x.bobot > 100 - progKemarin(x) + 0.01 ? '⚠ Bobot > sisa task' : x.capaian == null ? 'Menunggu laporan sore'
+    : x.bobot > sisaTask(x) + 0.01 ? '⚠ Bobot > sisa task' : x.capaian == null ? 'Menunggu laporan sore'
     : tercapai(x) === 'Tidak' && !x.penyebab ? '⚠ Isi penyebab' : 'OK';
 
   return `
@@ -537,17 +544,17 @@ function vHarian() {
   </div>
   <div class="bar"><button class="btn pri" data-act="daily-new">+ Janji hari ini</button><button class="btn" data-act="daily-copy">Salin janji kemarin</button></div>
   ${rows.map(x => {
-    const t = byKode[x.kode], c = cek(x, t), f = `daily|${x.id}|`, kem = progKemarin(x);
+    const t = byKode[x.kode], c = cek(x, t), f = `daily|${x.id}|`, kem = progKemarin(x), lain = r6(progSebelum(x) - kem);
     return `<div class="item">
       <div class="hd"><div><span class="code">${esc(x.kode)}</span> <span class="ttl">${esc(t ? label(t) : '')}</span>
         <div class="sub">${esc(t?.pekerjaan || '')}</div></div>
         <div class="chips">${stChip(tercapai(x))}<span class="chip ${c === 'OK' ? 'ok' : c.startsWith('⚠') ? 'warn' : ''}">${esc(c)}</span></div></div>
       <label class="f" style="margin-top:8px">Target hari ini (pagi)<input type="text" value="${esc(x.target)}" data-f="${f}target" class="${x.target ? '' : 'need'}"></label>
       <div class="frow">
-        <label class="f">Bobot target (% dari task, pagi)<input type="number" min="0" max="100" step="any" inputmode="decimal" value="${x.bobot ?? ''}" data-f="${f}bobot" class="${x.bobot == null ? 'need' : x.bobot > 100 - kem + 0.01 ? 'over' : ''}"></label>
+        <label class="f">Bobot target (% dari task, pagi)<input type="number" min="0" max="100" step="any" inputmode="decimal" value="${x.bobot ?? ''}" data-f="${f}bobot" class="${x.bobot == null ? 'need' : x.bobot > sisaTask(x) + 0.01 ? 'over' : ''}"></label>
         <label class="f">% tercapai harian (sore)<input type="number" min="0" max="200" step="any" inputmode="decimal" value="${x.capaian ?? ''}" data-f="${f}capaian"></label>
       </div>
-      <p class="muted" style="font-size:13px;margin:0 0 8px">Progress s/d kemarin ${pc(kem)} + kontribusi ${pc(kontrib(x))} = <b>kumulatif ${pc(progKum(x))}</b> · sisa task ${pc(Math.max(0, 100 - kem))}</p>
+      <p class="muted" style="font-size:13px;margin:0 0 8px">Progress s/d kemarin ${pc(kem)}${samaHari(x).length ? ` + janji lain hari ini ${pc(lain)}` : ''} + kontribusi ${pc(kontrib(x))} = <b>kumulatif ${pc(progKum(x))}</b> · sisa task ${pc(Math.max(0, sisaTask(x)))}</p>
       ${tercapai(x) === 'Tidak' ? `<label class="f">Penyebab tidak tercapai<select data-f="${f}penyebab" class="${x.penyebab ? '' : 'need'}">${opt('', x.penyebab, '– pilih –')}${D.penyebab.map(p => opt(p, x.penyebab)).join('')}</select></label>` : ''}
       <div class="bar" style="margin:0"><input class="grow" type="text" placeholder="Catatan" value="${esc(x.catatan)}" data-f="${f}catatan"><button class="btn sm danger" data-act="daily-del" data-id="${x.id}">Hapus</button></div>
     </div>`;
@@ -764,19 +771,45 @@ function newTask(pek) {
   }, true);
 }
 
-function newDaily() {
+/* Satu task komitmen → beberapa janji harian (beberapa tanggal, atau beberapa janji di hari yang sama) */
+const janjiRow = (d, target = '', bobot = '') => `<div class="jr">
+  <input type="date" name="jtgl" value="${d}" aria-label="Tanggal"><input type="number" name="jbobot" min="0" max="100" step="any" inputmode="decimal" placeholder="Bobot %" value="${bobot}" aria-label="Bobot %">
+  <button type="button" class="btn sm" data-act="jr-del" aria-label="Hapus baris">✕</button>
+  <input type="text" name="jtarget" placeholder="Target (lokasi / volume)" value="${esc(target)}" aria-label="Target"></div>`;
+function jrInfo(kode) {
+  const t = D.tasks.find(x => x.kode === kode); if (!t) return '';
+  return `Rencana ${fmt(t.mulai)} – ${fmt(t.selesai)} · progress ${pc(prog(kode) || 0)} · janji belum dilaporkan ${pc(belumLapor(kode))} · <b>sisa untuk direncanakan ${pc(sisaRencana(kode))}</b>`;
+}
+function newDaily(kode) {
   const d = UI.harianTgl || tgl();
   const ready = D.tasks.filter(t => t.disepakati === 'Ya' && stK(t) === 'READY' && stP(t) !== 'FINISH');
   if (!ready.length) { toast('Belum ada task READY'); return; }
-  openDlg(`<h3>Janji harian · ${fmt(d)}</h3>
-    <label class="f">Task (hanya READY & belum FINISH)<select name="kode" required>${ready.map(t => opt(t.kode, '', `${t.kode} · ${t.uraian}${t.lokasi ? ' · ' + t.lokasi : ''}`)).join('')}</select></label>
-    <label class="f">Target hari ini (terukur: lokasi / volume)<input type="text" name="target" required></label>
-    <label class="f">Bobot target (% dari task yang direncanakan hari ini)<input type="number" name="bobot" min="0.1" max="100" step="any" inputmode="decimal" required></label>
-    <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Tambah</button></div>`,
+  const k0 = ready.some(t => t.kode === kode) ? kode : ready[0].kode;
+  openDlg(`<h3>Janji harian</h3>
+    <label class="f">Task (hanya READY & belum FINISH)<select name="kode" id="jr-kode" required>${ready.map(t => opt(t.kode, k0, `${t.kode} · ${t.uraian}${t.lokasi ? ' · ' + t.lokasi : ''}`)).join('')}</select></label>
+    <p class="muted" id="jr-info" style="font-size:13px;margin:-4px 0 10px">${jrInfo(k0)}</p>
+    <div class="muted" style="font-size:12px;margin-bottom:4px">Tanggal · bobot (% dari task) · target terukur. Boleh beberapa baris di tanggal yang sama.</div>
+    <div id="jr-rows">${janjiRow(d)}</div>
+    <div class="bar" style="margin:4px 0 0"><button type="button" class="btn sm" data-act="jr-add">+ Baris</button><button type="button" class="btn sm" data-act="jr-auto">Bagi rata s/d rencana selesai</button></div>
+    <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Simpan janji</button></div>`,
   fd => {
-    D.daily.push({ id: newId(), tgl: d, kode: fd.get('kode'), target: fd.get('target'), bobot: +fd.get('bobot'), capaian: null, penyebab: '', catatan: '' });
+    const k = fd.get('kode'), tg = fd.getAll('jtgl'), tr = fd.getAll('jtarget'), bb = fd.getAll('jbobot');
+    const rows = tg.map((x, i) => ({ tgl: x, target: tr[i].trim(), bobot: nOr(bb[i]) })).filter(r => r.tgl && r.target && r.bobot > 0);
+    if (!rows.length) { toast('Isi tanggal, target & bobot minimal satu baris'); return; }
+    const sisa = sisaRencana(k), tot = r6(rows.reduce((s, r) => s + r.bobot, 0));
+    rows.forEach(r => D.daily.push({ id: newId(), tgl: r.tgl, kode: k, target: r.target, bobot: r.bobot, capaian: null, penyebab: '', catatan: '' }));
     save(); render();
+    toast(`${rows.length} janji ${k} disimpan${tot > sisa + 0.01 ? ` · ⚠ total bobot ${pc(tot)} > sisa ${pc(sisa)}` : ''}`);
   });
+}
+function jrAuto() { // satu baris per hari dari tanggal Harian (atau rencana mulai) s/d rencana selesai, bobot sisa dibagi rata
+  const t = D.tasks.find(x => x.kode === $('#jr-kode').value);
+  const from = [UI.harianTgl || tgl(), t.mulai].filter(Boolean).sort().at(-1), to = t.selesai || from;
+  const n = Math.min(14, Math.max(1, days(from, to) + 1)), sisa = sisaRencana(t.kode);
+  if (!sisa) { toast('Bobot task sudah habis direncanakan'); return; }
+  const b = Math.floor(sisa / n * 10) / 10;
+  $('#jr-rows').innerHTML = Array.from({ length: n }, (_, i) => janjiRow(addDays(from, i), '', i === n - 1 ? r6(sisa - b * (n - 1)) : b)).join('');
+  if (days(from, to) + 1 > 14) toast('Dibatasi 14 hari – tambah sisanya nanti');
 }
 
 /* ---------- event ---------- */
@@ -820,7 +853,14 @@ document.addEventListener('click', e => {
       break;
     case 'sepakat': task.disepakati = task.disepakati === el.dataset.v ? '' : el.dataset.v; task.inLPS = task.disepakati === 'Ya'; save(); render(); break;
     case 'kst': task.k[el.dataset.k].st = el.dataset.v; save(); render(); break;
-    case 'daily-new': newDaily(); break;
+    case 'daily-new': newDaily(el.dataset.kode); break;
+    case 'jr-add': {
+      const last = [...document.querySelectorAll('#jr-rows [name=jtgl]')].at(-1)?.value || UI.harianTgl || tgl();
+      $('#jr-rows').insertAdjacentHTML('beforeend', janjiRow(addDays(last, 1)));
+      break;
+    }
+    case 'jr-del': if (document.querySelectorAll('#jr-rows .jr').length > 1) el.closest('.jr').remove(); break;
+    case 'jr-auto': jrAuto(); break;
     case 'daily-del': D.daily = D.daily.filter(r => r.id !== el.dataset.id); save(); render(); break;
     case 'daily-copy': {
       const d = UI.harianTgl || tgl();
@@ -880,6 +920,7 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => {
   const el = e.target;
   if (el.dataset.ui) { UI[el.dataset.ui] = el.value; render(); return; }
+  if (el.id === 'jr-kode') { $('#jr-info').innerHTML = jrInfo(el.value); return; }
   if (!el.dataset.f) return;
   const [kind, id, path] = el.dataset.f.split('|');
   let v = el.value;

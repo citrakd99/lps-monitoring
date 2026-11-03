@@ -112,6 +112,7 @@ Kolom dibaca **berdasarkan judul** (bukan huruf kolom), jadi sisipan kolom di Ex
 | LPS Input!AI Status Kendala | `READY` bila tidak ada kendala `Pending`; selain itu `PENDING` |
 | Daily Log Tercapai? | % tercapai ≥ 100 → Ya, selain itu Tidak (kosong = belum lapor) |
 | Daily Log Kontribusi / Progress | kontribusi = bobot × % tercapai; s/d kemarin = Σ kontribusi task sama di tanggal sebelumnya; kumulatif = MIN(100, s/d kemarin + kontribusi) |
+| *(app)* Beberapa janji / hari | satu task boleh punya beberapa janji di tanggal yang sama; janji sebelumnya di hari itu (urut id) ikut dihitung ke kumulatif & sisa task. Excel (SUMIFS tanggal "<") belum menghitung ini |
 | LPS Input!AG Progress | MAXIFS progress kumulatif daily log task tsb |
 | LPS Input!AJ Status Pelaksanaan | hanya untuk READY: progress ≥ 100 → `FINISH`; tglUpdate > rencana selesai → `LATE / DELAY`; selain itu `ON PROGRESS` |
 | Daftar Pekerjaan!M Status Jadwal | mulai > tglUpdate → Belum mulai; selesai < tglUpdate → Selesai (jadwal); selain itu Berjalan |
