@@ -91,7 +91,7 @@ Kolom dibaca **berdasarkan judul** (bukan huruf kolom), jadi sisipan kolom di Ex
 | `kode` | Kode Task | |
 | `target` | Target Hari Ini | pagi |
 | `bobot` | Bobot Target (% dari task) | pagi; Excel pecahan 0,2 → app 20 |
-| `capaian` | % Tercapai Harian | sore; Excel 0,5 → app 50 |
+| `capaian` | % Tercapai Harian | Excel 0,5 → app 50. Di app yang diisi sore adalah **actual progress hari ini (% dari task)**; capaian = actual ÷ bobot × 100 |
 | `penyebab` | Penyebab Tidak Tercapai | |
 | `catatan` | Catatan | |
 | *(dihitung)* | Tercapai?, Progress s/d Kemarin, Kontribusi Hari Ini, Progress Kumulatif, Cek | tidak disimpan |
