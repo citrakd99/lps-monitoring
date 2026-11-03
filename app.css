@@ -186,3 +186,32 @@ dialog::backdrop { background: rgba(10,15,20,.5); }
 }
 
 [hidden] { display: none !important; }
+
+/* judul view + tombol PDF */
+.vh { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0 12px; }
+.vh h2 { margin: 0; }
+
+/* ---------- laporan PDF per PIC (hanya saat cetak; warna tetap terang walau mode gelap) ---------- */
+#print { display: none; }
+@media print {
+  @page { size: A4 landscape; margin: 10mm; }
+  body > *:not(#print) { display: none !important; }
+  body { background: #fff !important; padding: 0 !important; }
+  #print { display: block; color: #111; font: 10pt/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #print .pg { break-after: page; }
+  #print .pg:last-child { break-after: auto; }
+  #print header { display: flex; justify-content: space-between; gap: 12px; border-bottom: 2px solid #163a5f; padding-bottom: 6px; margin-bottom: 8px; }
+  #print header b { display: block; font-size: 14pt; color: #163a5f; }
+  #print header span { font-size: 9pt; color: #444; }
+  #print .pr-meta { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+  #print .pr-meta b { display: inline; font-size: 11pt; color: #111; }
+  #print table { width: 100%; border-collapse: collapse; }
+  #print th, #print td { border: 1px solid #999; padding: 4px 5px; vertical-align: top; text-align: left; }
+  #print th { background: #e8edf3 !important; font-size: 9pt; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #print tr { break-inside: avoid; }
+  #print td:nth-child(-n+2) { white-space: nowrap; }
+  #print thead { display: table-header-group; }
+  #print .pr-n { font-size: 9pt; color: #555; margin: 4px 0 0; }
+  #print footer { display: flex; justify-content: space-between; margin-top: 18px; break-inside: avoid; }
+  #print footer div { width: 40%; text-align: center; font-size: 10pt; }
+}

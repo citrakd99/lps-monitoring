@@ -56,7 +56,8 @@ function stP(t) {
   if (t.selesai && tgl() > t.selesai) return 'LATE / DELAY';
   return 'ON PROGRESS';
 }
-const inWeek = t => UI.week === '' || +t.minggu === +UI.week;
+const inW = w => t => w === '' || +t.minggu === +w;
+const inWeek = t => inW(UI.week)(t);
 const planTasks = () => D.tasks.filter(t => t.disepakati === 'Ya' && inWeek(t));
 function stJadwal(p) {
   const d = tgl();
@@ -65,10 +66,10 @@ function stJadwal(p) {
   if (p.selesai < d) return 'Selesai (jadwal)';
   return 'Berjalan';
 }
-function issueList() {
+function issueList(w = UI.week) {
   const out = [];
   for (const t of D.tasks) {
-    if (t.disepakati !== 'Ya' || !inWeek(t)) continue;
+    if (t.disepakati !== 'Ya' || !inW(w)(t)) continue;
     for (const k of KK) {
       const c = t.k[k];
       if (c.st !== 'Pending') continue;
@@ -404,7 +405,7 @@ function vKomit() {
   }
   const n = ts.length, ya = ts.filter(t => t.disepakati === 'Ya').length;
   return `
-  <h2>Komitmen mingguan ${UI.week === '' ? '' : '· W' + UI.week}</h2>
+  ${vh(`Komitmen mingguan ${UI.week === '' ? '' : '· W' + UI.week}`, 'komit')}
   <p class="muted" style="margin-top:-6px">${n} task · ${ya} disepakati${n ? ' (' + pct(ya / n) + ')' : ''}. Pilih <b>Ya</b> saat rapat mingguan untuk task yang sanggup dikerjakan.</p>
   ${gap}
   ${ts.map(t => `
@@ -465,7 +466,7 @@ function vReady() {
   const issues = k => D.issues[k] || [];
   const d = tgl();
   return `
-  <h2>Make Ready · cek kendala</h2>
+  ${vh('Make Ready · cek kendala', 'ready')}
   <div class="grid kpis">
     ${KK.map(k => `<div class="kpi ${cnt(k) ? 'warn' : ''}"><b>${cnt(k)}</b><span>Pending ${KAT[k]}</span></div>`).join('')}
     <div class="kpi ok"><b>${ts.filter(t => stK(t) === 'READY').length}</b><span>Task Ready to Work</span></div>
@@ -519,7 +520,7 @@ function vHarian() {
     : tercapai(x) === 'Tidak' && !x.penyebab ? '⚠ Isi penyebab' : 'OK';
 
   return `
-  <h2>Daily commitment</h2>
+  ${vh('Daily commitment', 'harian')}
   <div class="bar">
     <button class="btn sm" data-act="day" data-n="-1" aria-label="Hari sebelumnya">‹</button>
     <input type="date" value="${d}" data-ui="harianTgl">
@@ -586,7 +587,7 @@ function ppcChart(dates) {
 function vIssue() {
   const L = issueList();
   return `
-  <h2>Follow up issue / kendala</h2>
+  ${vh('Follow up issue / kendala', 'issue')}
   <div class="card scroll"><table class="tbl">
     <tr><th>Kategori</th><th class="n">Pending</th><th class="n">Lewat target</th></tr>
     ${KK.map(k => { const a = L.filter(x => x.k === k); return `<tr><td>${KAT[k]}</td><td class="n">${a.length}</td><td class="n">${a.filter(x => x.sisa != null && x.sisa < 0).length}</td></tr>`; }).join('')}
@@ -664,6 +665,65 @@ function exportCSV(what) {
     const rows = [...D.daily].sort((a, b) => a.tgl.localeCompare(b.tgl)).map(x => [x.tgl, x.kode, x.target, x.bobot, x.capaian, tercapai(x), progKemarin(x), kontrib(x), progKum(x), x.penyebab, x.catatan]);
     download(`Daily-Log_${tgl()}.csv`, csv([h, ...rows]), 'text/csv');
   }
+}
+
+/* ---------- PDF per PIC (cetak browser → "Simpan sebagai PDF"; tanpa library, jalan offline) ---------- */
+const vh = (title, r) => `<div class="vh"><h2>${esc(title)}</h2><button class="btn sm" data-act="pdf" data-r="${r}">PDF per PIC</button></div>`;
+const picOf = s => String(s || '').trim() || '(tanpa PIC)';
+const rentang = t => t.mulai || t.selesai ? `${fmt(t.mulai)} – ${fmt(t.selesai)}` : '–';
+/* Tiap laporan: judul, kolom, dan baris {pic, cells}. Make Ready / Komitmen / Harian = PIC task; Issue = PIC kendala. */
+const REPORTS = {
+  komit: { title: 'Komitmen Mingguan', week: true,
+    head: ['Kode', 'Pekerjaan', 'Uraian', 'Lokasi / Area', 'Rencana', 'Disepakati', 'Alasan / catatan rapat'],
+    rows: o => D.tasks.filter(inW(o.week)).sort((a, b) => a.kode.localeCompare(b.kode)).map(t => ({ pic: picOf(t.pic),
+      cells: [t.kode, t.pekerjaan, t.uraian, [t.lokasi, t.area].filter(Boolean).join(' · '), rentang(t), t.disepakati || '–', t.alasan] })) },
+  ready: { title: 'Make Ready – Cek Kendala', week: true,
+    head: ['Kode', 'Uraian', 'Lokasi', 'Rencana', 'Status kendala', 'Kendala pending (issue · PIC · target)', 'Progress', 'Pelaksanaan'],
+    rows: o => D.tasks.filter(t => t.disepakati === 'Ya' && inW(o.week)(t)).sort((a, b) => a.kode.localeCompare(b.kode)).map(t => ({ pic: picOf(t.pic),
+      cells: [t.kode, t.uraian, t.lokasi, rentang(t), stK(t),
+        KK.filter(k => t.k[k].st === 'Pending').map(k => { const c = t.k[k]; return `${KAT[k]}: ${c.issue || '?'}${c.detail ? ' – ' + c.detail : ''} · ${c.pic || 'PIC?'} · ${fmt(c.target)}`; }).join('\n') || 'Semua OK',
+        pc(prog(t.kode)), stP(t)] })) },
+  harian: { title: 'Daily Commitment', date: true,
+    head: ['Kode', 'Uraian / lokasi', 'Target hari ini', 'Bobot', '% tercapai', 'Tercapai?', 'Progress kumulatif', 'Penyebab tidak tercapai', 'Catatan'],
+    rows: o => D.daily.filter(x => x.tgl === o.tgl).map(x => { const t = D.tasks.find(t => t.kode === x.kode); return { pic: picOf(t?.pic),
+      cells: [x.kode, [t?.uraian, t?.lokasi].filter(Boolean).join(' · '), x.target, pc(x.bobot), x.capaian == null ? '' : pc(x.capaian), tercapai(x),
+        x.capaian == null ? '' : pc(progKum(x)), x.penyebab, x.catatan] }; }) },
+  issue: { title: 'Follow Up Issue / Kendala', week: true,
+    head: ['Kode', 'Task', 'Kategori', 'Issue', 'Detail', 'Target', 'Sisa hari', 'Status'],
+    rows: o => issueList(o.week).map(x => ({ pic: picOf(x.c.pic || x.t.pic),
+      cells: [x.t.kode, [x.t.uraian, x.t.lokasi].filter(Boolean).join(' · '), KAT[x.k], x.c.issue, x.c.detail, fmt(x.c.target), x.sisa ?? '–', x.st] })) },
+};
+function pdfOpts(r) { return { week: UI.week, tgl: UI.harianTgl || tgl(), pic: '' , r }; }
+function pdfForm(r) {
+  const R = REPORTS[r], o = pdfOpts(r);
+  const pics = [...new Set(R.rows(o).map(x => x.pic))].sort();
+  return `<h3>PDF ${esc(R.title)}</h3>
+  ${R.week ? `<label class="f">Minggu<select name="week">${opt('', o.week, 'Semua minggu')}${D.meta.weeks.map(x => opt(x.w, o.week, `W${x.w} · ${x.label}`)).join('')}</select></label>` : ''}
+  ${R.date ? `<label class="f">Tanggal<input type="date" name="tgl" value="${o.tgl}"></label>` : ''}
+  <label class="f">PIC<select name="pic">${opt('', '', 'Semua PIC – 1 halaman per PIC')}${pics.map(p => opt(p, '')).join('')}</select></label>
+  <p class="muted" style="font-size:13px">Daftar PIC mengikuti ${R.date ? 'tanggal' : 'minggu'} yang sedang dibuka. Di jendela cetak pilih <b>Simpan sebagai PDF</b>, lalu kirim ke PIC.${r === 'issue' ? ' Issue dikelompokkan per PIC kendala.' : ''}</p>
+  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Buat PDF</button></div>`;
+}
+function printReport(r, o) {
+  const R = REPORTS[r], rows = R.rows(o).filter(x => !o.pic || x.pic === o.pic);
+  if (!rows.length) { toast('Tidak ada data untuk dicetak'); return; }
+  const groups = {};
+  rows.forEach(x => (groups[x.pic] ||= []).push(x.cells));
+  const wo = o.week === '' ? null : weekObj(o.week);
+  const per = R.date ? fmt(o.tgl) + ` (W${weekOf(o.tgl)})` : wo ? `W${wo.w} · ${fmt(wo.start)} – ${fmt(wo.end)}` : 'Semua minggu';
+  const cell = v => esc(v ?? '').replace(/\n/g, '<br>');
+  $('#print').innerHTML = Object.keys(groups).sort().map(pic => `<section class="pg">
+    <header><div><b>${esc(R.title)}</b><span>${esc(D.meta.project)}</span></div>
+      <div class="pr-meta"><span>PIC: <b>${esc(pic)}</b></span><span>${esc(per)}</span><span>Dicetak ${fmt(todayISO())}${D.sync.user ? ' oleh ' + esc(D.sync.user) : ''}</span></div></header>
+    <table><thead><tr><th>No</th>${R.head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
+      <tbody>${groups[pic].map((c, i) => `<tr><td>${i + 1}</td>${c.map(v => `<td>${cell(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>
+    <p class="pr-n">${groups[pic].length} baris</p>
+    <footer><div>Dibuat oleh<br><br><br>( ${esc(D.sync.user || '..................')} )</div><div>Diterima PIC<br><br><br>( ${esc(pic)} )</div></footer>
+  </section>`).join('');
+  const judul = document.title;
+  document.title = [R.title.split(' ')[0], o.pic || 'Semua-PIC', R.date ? o.tgl : wo ? 'W' + wo.w : 'semua'].join('_').replace(/[\\/:*?"<>|\s]+/g, '-'); // nama file PDF
+  addEventListener('afterprint', () => { document.title = judul; $('#print').innerHTML = ''; }, { once: true });
+  setTimeout(() => print(), 60); // beri waktu dialog tertutup
 }
 
 /* ---------- dialog ---------- */
@@ -744,6 +804,11 @@ document.addEventListener('click', e => {
         if (syncOn()) syncNow(true);
       });
       break;
+    case 'pdf': {
+      const r = el.dataset.r;
+      openDlg(pdfForm(r), fd => printReport(r, { week: fd.has('week') ? fd.get('week') : UI.week, tgl: fd.get('tgl') || UI.harianTgl || tgl(), pic: fd.get('pic') || '' }));
+      break;
+    }
     case 'task-new': newTask(el.dataset.pek); break;
     case 'task-edit': editTask({ ...task }, false); break;
     case 'task-del':
