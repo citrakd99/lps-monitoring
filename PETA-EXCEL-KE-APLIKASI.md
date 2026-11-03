@@ -46,7 +46,7 @@ Di aplikasi, sheet **input** menjadi layar/form, sheet **otomatis** (board, reka
 | `targetPPC` | PPC Harian!C4 (0,8) |
 | `weeks[] {w, start, end, label}` | MASTER baris 8 (nomor), 9 (tanggal mulai), 10 (label "02 - 08"), kolom Y…BC |
 | `scurve[] {w, plan, cum}` | MASTER baris 2696 (PROGRESS PLAN) & 2697 (CUMULATIVE) kolom yang sama |
-| `progress[] {w, aktual}` | **Actual progress mingguan** (kumulatif %), diinput manual di Dashboard → *Input actual mingguan*; tab Sheet *Progress*. Opsional dari Excel: baris MASTER berjudul `CUMULATIVE PROGRESS ACTUAL` |
+| `progress[] {w, aktual}` | **Actual progress mingguan** (kumulatif %), diinput manual di Dashboard → *Input actual mingguan*; tab Sheet *Progress*. Dari Excel: MASTER baris 2700 `CUMULATIVE PROGRESS ACTUAL` (input, kolom Y–BC), baris 2701 `DEVIASI (ACTUAL - PLAN)` otomatis |
 
 ### 3.2 `pekerjaan[]` (Daftar Pekerjaan)
 | Field | Kolom | Catatan |
@@ -81,9 +81,11 @@ Di aplikasi, sheet **input** menjadi layar/form, sheet **otomatis** (board, reka
 | `k.oth {…}` | | AA, AB, AC, AD, AE |
 | `catatanKendala` | | AF |
 | `penyebabTerlambat` | | AH |
-| `prio` | kolom opsional berjudul *Prioritas* (Urgent / Tinggi / kosong) | |
-| `koord` | kolom opsional *Koordinasi Disiplin* (mis. `MEP, ARS`) | |
-| `followup` | kolom opsional *Catatan Follow-up* | |
+| `prio` | N Prioritas (dropdown Urgent / Tinggi; kosong = Normal) | |
+| `koord` | O Koordinasi Disiplin (mis. `MEP, ARS`) | |
+| `followup` | P Catatan Follow-up | |
+
+Sejak 03-Nov-26 tblKomit = A–Q (kolom N–P baru; *Status di LPS Input* pindah ke Q, sumber dropdown kode ke S).
 
 ### 3.4 `daily[]` (Daily Log, tabel `tblDaily`)
 Kolom dibaca **berdasarkan judul** (bukan huruf kolom), jadi sisipan kolom di Excel tidak merusak ekspor.
@@ -95,7 +97,8 @@ Kolom dibaca **berdasarkan judul** (bukan huruf kolom), jadi sisipan kolom di Ex
 | `kode` | Kode Task | |
 | `target` | Target Hari Ini | pagi |
 | `bobot` | Bobot Target (% dari task) | pagi; Excel pecahan 0,2 → app 20 |
-| `capaian` | % Tercapai Harian | Excel 0,5 → app 50. Di app yang diisi sore adalah **actual progress hari ini (% dari task)**; capaian = actual ÷ bobot × 100 |
+| *(input sore)* | Actual Hari Ini (% dari task) | kolom L (baru); di Excel & app yang diisi sore adalah actual |
+| `capaian` | % Tercapai Harian (otomatis = Actual ÷ Bobot) | Excel 0,5 → app 50. Di app yang diisi sore adalah **actual progress hari ini (% dari task)**; capaian = actual ÷ bobot × 100 |
 | `penyebab` | Penyebab Tidak Tercapai | |
 | `catatan` | Catatan | |
 | *(dihitung)* | Tercapai?, Progress s/d Kemarin, Kontribusi Hari Ini, Progress Kumulatif, Cek | tidak disimpan |
