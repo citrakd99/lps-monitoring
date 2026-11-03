@@ -63,8 +63,9 @@ def main():
     body["tasks"] = [{**r, "_u": now, "_by": nama} for r in seed.get("tasks", []) if str(r["kode"]) not in known]
 
     sheet = {str(r["id"]): r for r in team.get("daily", [])}
-    if sheet and not any("bobot" in r for r in sheet.values()):
-        sys.exit("Code.gs di Google masih versi lama (belum ada kolom bobot/capaian). Tempel Code.gs terbaru, "
+    if (sheet and not any("bobot" in r for r in sheet.values())) or \
+            (team.get("tasks") and not any("prio" in r for r in team["tasks"])):
+        sys.exit("Code.gs di Google masih versi lama (belum ada kolom bobot/capaian/prioritas). Tempel Code.gs terbaru, "
                  "jalankan setup(), lalu Deploy > Manage deployments > Edit > Version: New version.")
     def same(a, b):
         return all(str(a.get(f) if a.get(f) is not None else "") == str(b.get(f) if b.get(f) is not None else "")

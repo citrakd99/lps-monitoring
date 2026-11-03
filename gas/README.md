@@ -8,7 +8,7 @@
    (Bisa juga dilihat/diganti di ⚙ Project Settings → Script Properties → `TEAM_KEY`.)
 
 Sheet akan berisi tab **Tasks**, **DailyLog**, **Master** (jadwal dari Excel), dan **Log** (riwayat siapa mengubah apa).
-**Memperbarui script yang sudah terpasang** (mis. setelah daily log memakai bobot & % tercapai): tempel `Code.gs` terbaru → jalankan `setup()` sekali lagi (menambah tab **Master** & kolom `bobot`, `capaian` di DailyLog) → **Deploy → Manage deployments → Edit → Version: New version** (URL tetap sama). `push_master.py` menolak jalan bila server masih versi lama.
+**Memperbarui script yang sudah terpasang** (mis. setelah daily log memakai bobot & % tercapai): tempel `Code.gs` terbaru → jalankan `setup()` sekali lagi (menambah tab **Master**, kolom `bobot`, `capaian` di DailyLog, dan `prio`, `koord`, `followup` di Tasks) → **Deploy → Manage deployments → Edit → Version: New version** (URL tetap sama). `push_master.py` menolak jalan bila server masih versi lama.
 
 ## 2. Deploy sebagai Web App
 1. **Deploy → New deployment** → ikon roda → **Web app**.

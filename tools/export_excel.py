@@ -93,6 +93,9 @@ def export(xlsx, out):
     # --- Komitmen + LPS Input → tasks ---
     km, lp = wb["Komitmen"], wb["LPS Input"]
     tasks = {}
+    # kolom opsional di Komitmen (dicari dari judul baris 5): Prioritas, Koordinasi Disiplin, Catatan Follow-up
+    hk = {txt(c.value): c.column for c in km[5] if txt(c.value)}
+    opt_ = lambda r, name: txt(km.cell(r, hk[name]).value) if name in hk else ""
     for r in rows(km, 6, "A"):
         kode = txt(g(km, f"A{r}"))
         tasks[kode] = {
@@ -103,6 +106,8 @@ def export(xlsx, out):
             "disepakati": txt(g(km, f"L{r}")), "alasan": txt(g(km, f"M{r}")),
             "inLPS": False, "k": {k: {"st": "OK", "issue": "", "detail": "", "pic": "", "target": None} for k in KAT},
             "catatanKendala": "", "penyebabTerlambat": "",
+            "prio": {"urgent": "Urgent", "tinggi": "Tinggi"}.get(opt_(r, "Prioritas").lower(), ""),
+            "koord": opt_(r, "Koordinasi Disiplin").replace(";", ","), "followup": opt_(r, "Catatan Follow-up"),
         }
     for r in rows(lp, 5, "B"):
         t = tasks.get(txt(g(lp, f"B{r}")))

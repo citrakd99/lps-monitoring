@@ -26,6 +26,7 @@ var TABLES = {
     cols: ['kode', 'minggu', 'disiplin', 'pekerjaan', 'area', 'uraian', 'lokasi', 'pic', 'mulai', 'selesai', 'disepakati', 'alasan']
       .concat(KAT.reduce(function (a, k) { return a.concat(KFIELD.map(function (f) { return 'k.' + k + '.' + f; })); }, []))
       .concat(['catatanKendala', 'penyebabTerlambat', 'inLPS', '_u', '_by', '_del', '_rev'])
+      .concat(['prio', 'koord', 'followup']) // prioritas: ditambah di akhir agar baris lama tetap sejajar
   },
   daily: {
     sheet: 'DailyLog', key: 'id',

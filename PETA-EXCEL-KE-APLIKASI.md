@@ -80,6 +80,9 @@ Di aplikasi, sheet **input** menjadi layar/form, sheet **otomatis** (board, reka
 | `k.oth {…}` | | AA, AB, AC, AD, AE |
 | `catatanKendala` | | AF |
 | `penyebabTerlambat` | | AH |
+| `prio` | kolom opsional berjudul *Prioritas* (Urgent / Tinggi / kosong) | |
+| `koord` | kolom opsional *Koordinasi Disiplin* (mis. `MEP, ARS`) | |
+| `followup` | kolom opsional *Catatan Follow-up* | |
 
 ### 3.4 `daily[]` (Daily Log, tabel `tblDaily`)
 Kolom dibaca **berdasarkan judul** (bukan huruf kolom), jadi sisipan kolom di Excel tidak merusak ekspor.
@@ -141,6 +144,7 @@ lps-pwa/
 - **Tanpa framework/build** – HTML + JS murni (±60 KB), cepat di HP.
 - **Offline** – service worker meng-cache aplikasi; data tersimpan di `localStorage` perangkat.
 - **Sinkron data** – Excel tetap sumber jadwal: jalankan `export_excel.py`, lalu di app menu Data → "Muat ulang dari seed". Data lapangan bisa di-**Export JSON** (backup / kirim ke rekan) dan **Export CSV** (tempel balik ke Excel).
+- **Prioritas** – task bisa ditandai *Urgent* / *Tinggi*, diberi disiplin lain yang perlu dikoordinasikan, dan catatan follow-up. Filter *Semua · Urgent · Urgent + tinggi · Koordinasi disiplin · Semua perlu follow up* ada di Komitmen, Make Ready, Harian, Issue (ikut ke PDF); task prioritas tampil paling atas dan di kartu Dashboard.
 - **PDF per PIC** – tombol *PDF per PIC* di Komitmen, Make Ready, Harian, dan Issue: pilih minggu/tanggal dan PIC (atau semua PIC, 1 halaman per PIC), lalu *Simpan sebagai PDF* dari jendela cetak browser. Komitmen/Make Ready/Harian dikelompokkan per PIC task, Issue per PIC kendala.
 - **Sinkron tim** – `tasks` dan `daily` disinkron ke Google Sheet (tab *Tasks*, *DailyLog*, *Log*) lewat Apps Script dengan satu kode akses tim. Pasang: [gas/README.md](gas/README.md).
 
