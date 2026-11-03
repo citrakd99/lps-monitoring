@@ -1,16 +1,16 @@
 /**
- * LPS Batik – API sinkron (Google Apps Script + Google Sheets).
+ * LPS Batik - API sinkron (Google Apps Script + Google Sheets).
  *
  * Pasang: lihat lps-pwa/gas/README.md
- *  1. Buat Google Sheet baru → Extensions → Apps Script → tempel file ini.
+ *  1. Buat Google Sheet baru -> Extensions -> Apps Script -> tempel file ini.
  *  2. Jalankan fungsi setup() sekali (izinkan akses). Kode akses tim muncul di log.
- *  3. Deploy → New deployment → Web app → Execute as: Me, Who has access: Anyone.
- *  4. Salin URL /exec ke aplikasi (⚙ → Sinkron tim).
+ *  3. Deploy -> New deployment -> Web app -> Execute as: Me, Who has access: Anyone.
+ *  4. Salin URL /exec ke aplikasi ((roda gigi) -> Sinkron tim).
  *
  * Protokol (POST body JSON, Content-Type text/plain):
  *   { key, user, since, tasks:[...], daily:[...], masterVer, master? }
- *   → { ok, rev, tasks:[...], daily:[...], applied, skipped, masterVer, master? }
- * master = jadwal & referensi dari Excel (meta, pekerjaan, areas, …; lihat tools/push_master.py),
+ *   -> { ok, rev, tasks:[...], daily:[...], applied, skipped, masterVer, master? }
+ * master = jadwal & referensi dari Excel (meta, pekerjaan, areas, ...; lihat tools/push_master.py),
  * disimpan di tab Master agar aplikasi yang di-hosting publik tidak membawa data proyek.
  * Server mengirim master hanya bila masterVer milik perangkat berbeda.
  * Record membawa _u (waktu ubah ISO dari perangkat), _by (nama), _del (true = dihapus).
@@ -134,11 +134,15 @@ function handle_(b) {
 
 function writeMaster_(ss, m) {
   var sh = ss.getSheetByName(MASTER_SHEET);
-  if (!sh) throw new Error('Sheet ' + MASTER_SHEET + ' belum ada – jalankan setup()');
+  if (!sh) throw new Error('Sheet ' + MASTER_SHEET + ' belum ada - jalankan setup()');
   var s = JSON.stringify(m), parts = [];
   for (var i = 0; i < s.length; i += CHUNK) parts.push([s.slice(i, i + CHUNK)]);
   var last = sh.getLastRow();
-  if (last) sh.getRange(1, 1, last, 1).setValues(Array.from({ length: last }, function () { return ['']; }));
+  if (last) {
+    var kosong = [];
+    for (var j = 0; j < last; j++) kosong.push(['']);
+    sh.getRange(1, 1, last, 1).setValues(kosong);
+  }
   sh.getRange(1, 1, parts.length, 1).setNumberFormat('@').setValues(parts);
 }
 
