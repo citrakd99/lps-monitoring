@@ -39,6 +39,14 @@ var TABLES = {
   }
 };
 
+// Uji koneksi: jalankan ini dulu bila setup() gagal. Bila ini pun "error tak dikenal",
+// masalahnya di akun/izin browser (mis. login beberapa akun Google sekaligus), bukan di kode.
+function cekKoneksi() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error('Script tidak terhubung ke Google Sheet - buka Sheet > Extensions > Apps Script, tempel di sana');
+  Logger.log('OK - Sheet: ' + ss.getName() + ' | tab: ' + ss.getSheets().map(function (x) { return x.getName(); }).join(', '));
+}
+
 function setup() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   Object.keys(TABLES).forEach(function (t) {
