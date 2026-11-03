@@ -16,7 +16,7 @@ const opt = (v, cur, label) => `<option value="${esc(v)}"${String(v) === String(
 const pct = (x, d = 0) => x == null || isNaN(x) ? '–' : (x * 100).toFixed(d) + '%';
 
 let D = null;
-const UI = { view: 'dash', week: '', jSearch: '', jDis: '', jLook: '2', jFrom: null, harianTgl: null, focus: null };
+const UI = { view: 'dash', week: '', jSearch: '', jDis: '', jLook: '2', jFrom: null, harianTgl: null, focus: null, fPrio: '' };
 
 /* ---------- tanggal ---------- */
 const todayISO = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
@@ -120,7 +120,21 @@ function applyMaster(m) { // jadwal & referensi diganti; task, daily log, target
   MASTER_F.forEach(f => { if (m[f] !== undefined) D[f] = m[f]; });
   D.meta = { ...m.meta, targetPPC: ppc ?? 0.8 };
 }
-const TXT_T = ['disiplin', 'pekerjaan', 'area', 'uraian', 'lokasi', 'pic', 'disepakati', 'alasan', 'catatanKendala', 'penyebabTerlambat'];
+const TXT_T = ['disiplin', 'pekerjaan', 'area', 'uraian', 'lokasi', 'pic', 'disepakati', 'alasan', 'catatanKendala', 'penyebabTerlambat', 'prio', 'koord', 'followup'];
+/* ---------- prioritas & koordinasi disiplin (task urgent yang perlu follow up detail) ----------
+   prio: '' (Normal) | 'Tinggi' | 'Urgent' · koord: disiplin lain yang terlibat, dipisah koma · followup: catatan */
+const PRIO_T = ['prio', 'koord', 'followup'];
+const prioRank = t => ({ Urgent: 3, Tinggi: 2 })[t.prio] || 1;
+const koordList = t => String(t.koord || '').split(',').map(s => s.trim()).filter(Boolean);
+const perluFU = t => prioRank(t) >= 2 || koordList(t).length > 0;
+const prioChips = t => (t.prio === 'Urgent' ? '<span class="chip bad">URGENT</span>' : t.prio === 'Tinggi' ? '<span class="chip warn">Prioritas tinggi</span>' : '')
+  + (koordList(t).length ? `<span class="chip info" title="Koordinasi disiplin lain">↔ ${esc(koordList(t).join(', '))}</span>` : '');
+const prioSel = t => `<select class="prio-sel" aria-label="Prioritas" data-f="task|${esc(t.kode)}|prio">${opt('', t.prio, 'Prioritas: normal')}${opt('Tinggi', t.prio, 'Prioritas: tinggi')}${opt('Urgent', t.prio, 'Prioritas: URGENT')}</select>`;
+const fuNote = t => t.followup ? `<div class="fu">↳ ${esc(t.followup)}</div>` : '';
+const FPRIO = { '': 'Semua', urgent: 'Urgent', tinggi: 'Urgent + tinggi', koord: 'Koordinasi disiplin', fu: 'Semua perlu follow up' };
+const prioOK = t => { const f = UI.fPrio; return !f || !t ? !f : f === 'urgent' ? t.prio === 'Urgent' : f === 'tinggi' ? prioRank(t) >= 2 : f === 'koord' ? koordList(t).length > 0 : perluFU(t); };
+const byPrio = (a, b) => prioRank(b) - prioRank(a);
+const prioBar = () => `<div class="prio-f" role="group" aria-label="Filter prioritas">${Object.entries(FPRIO).map(([k, l]) => `<button type="button" data-act="fprio" data-v="${k}" class="${UI.fPrio === k ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>`;
 function normTask(t) {
   t.k = Object.assign(blankK(), t.k || {});
   KK.forEach(k => { const c = t.k[k]; c.st = c.st || 'OK'; ['issue', 'detail', 'pic'].forEach(f => { c[f] = c[f] ?? ''; }); c.target = c.target || null; });
@@ -177,6 +191,7 @@ function localRec(id) {
   const r = D[t].find(x => String(x[TBL[t]]) === k);
   return r ? { t, r } : null;
 }
+let oldGas = false; // Code.gs di Google belum versi terbaru (kolom prioritas belum ada)
 function applyRemote(res, force) {
   const S = D.sync;
   let n = 0;
@@ -185,6 +200,7 @@ function applyRemote(res, force) {
     delete r._del; delete r._rev;
     if (!force && S.dirty[id]) { const l = localRec(id); if (l && (l.r._u || '') > (r._u || '')) continue; } // lokal lebih baru → dikirim nanti
     const arr = D[t], i = arr.findIndex(x => String(x[key]) === String(r[key]));
+    if (t === 'tasks' && !del && !('prio' in r)) { PRIO_T.forEach(f => { r[f] = i >= 0 ? arr[i][f] : ''; }); oldGas = true; }
     if (del) { if (i >= 0) { arr.splice(i, 1); n++; } delete S.h[id]; }
     else {
       const rec = t === 'tasks' ? normTask(r) : normDaily(r), h = recHash(rec);
@@ -223,6 +239,7 @@ async function syncNow(manual) {
     changed += applyRemote(master(await post(body)), false);
     for (const id in sent) { const l = localRec(id); if (!l || l.r._u === sent[id]) delete S.dirty[id]; }
     S.lastOk = new Date().toISOString(); S.error = '';
+    if (oldGas && !syncNow.warned) { syncNow.warned = true; toast('Prioritas belum ikut tersinkron: perbarui Code.gs di Google (lihat gas/README.md)'); }
     if (manual) toast(changed ? `Sinkron selesai · ${changed} perubahan dari tim` : 'Sinkron selesai');
   } catch (e) {
     S.error = e.message;
@@ -299,6 +316,7 @@ function vDash() {
   const iss = issueList(), over = iss.filter(x => x.sisa != null && x.sisa < 0);
   const disc = [...new Set(D.tasks.map(t => t.disiplin).filter(Boolean))];
   const komitAll = D.tasks.filter(inWeek).length;
+  const fu = D.tasks.filter(t => inWeek(t) && perluFU(t) && stP(t) !== 'FINISH').sort((a, b) => byPrio(a, b) || a.kode.localeCompare(b.kode));
 
   return `
   <div class="grid kpis">
@@ -310,7 +328,19 @@ function vDash() {
     <div class="kpi info"><b>${by('FINISH')}</b><span>Finish</span></div>
     <div class="kpi ${pw.ppc == null ? '' : pw.ppc >= tgt ? 'ok' : 'bad'}"><b>${pct(pw.ppc)}</b><span>PPC ${UI.week === '' ? 'total' : 'minggu ' + UI.week} (target ${pct(tgt)})</span></div>
     <div class="kpi ${pd.ppc == null ? '' : pd.ppc >= tgt ? 'ok' : 'bad'}"><b>${pct(pd.ppc)}</b><span>PPC hari ini · ${pd.ya}/${pd.n} janji</span></div>
+    <div class="kpi ${fu.some(t => t.prio === 'Urgent') ? 'bad' : fu.length ? 'warn' : ''}"><b>${fu.length}</b><span>Perlu follow up (urgent / tinggi / koordinasi)</span></div>
   </div>
+
+  ${fu.length ? `<div class="card">
+    <h3>Task prioritas & koordinasi disiplin</h3>
+    ${fu.slice(0, 8).map(t => `<div style="padding:6px 0;border-bottom:1px solid var(--line)">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span><span class="code">${esc(t.kode)}</span> ${esc(t.uraian)} <small class="muted">${esc(t.disiplin)} · PIC ${esc(t.pic || '–')}</small></span>
+        <span class="chips" style="display:flex;gap:4px;flex-wrap:wrap">${prioChips(t)}${t.disepakati === 'Ya' ? stChip(stK(t)) + stChip(stP(t)) : '<span class="chip">belum disepakati</span>'}</span></div>
+      ${fuNote(t)}
+      ${t.disepakati === 'Ya' ? `<a href="#ready" data-act="goto-ready" data-kode="${esc(t.kode)}" style="font-size:13px">Follow up →</a>` : `<a href="#komit" data-act="goto-komit" data-kode="${esc(t.kode)}" style="font-size:13px">Bahas di komitmen →</a>`}
+    </div>`).join('')}
+    ${fu.length > 8 ? `<p><a href="#ready" data-act="fprio" data-v="fu">Lihat semua (${fu.length}) →</a></p>` : ''}
+  </div>` : ''}
 
   <div class="card">
     <h3>Kurva-S rencana (MASTER)</h3>
@@ -402,7 +432,7 @@ function vJadwal() {
 
 /* ---------- KOMITMEN ---------- */
 function vKomit() {
-  const ts = D.tasks.filter(inWeek).sort((a, b) => a.minggu - b.minggu || a.kode.localeCompare(b.kode));
+  const ts = D.tasks.filter(inWeek).filter(prioOK).sort((a, b) => byPrio(a, b) || a.minggu - b.minggu || a.kode.localeCompare(b.kode));
   let gap = '';
   if (UI.week !== '') {
     const w = weekObj(UI.week);
@@ -415,13 +445,14 @@ function vKomit() {
   const n = ts.length, ya = ts.filter(t => t.disepakati === 'Ya').length;
   return `
   ${vh(`Komitmen mingguan ${UI.week === '' ? '' : '· W' + UI.week}`, 'komit')}
+  ${prioBar()}
   <p class="muted" style="margin-top:-6px">${n} task · ${ya} disepakati${n ? ' (' + pct(ya / n) + ')' : ''}. Pilih <b>Ya</b> saat rapat mingguan untuk task yang sanggup dikerjakan.</p>
   ${gap}
   ${ts.map(t => `
     <div class="item" id="k-${esc(t.kode)}">
       <div class="hd"><div><span class="code">${esc(t.kode)}</span> <span class="ttl">${esc(t.uraian || '(tanpa uraian)')}</span>
         <div class="sub">${esc(t.pekerjaan)}</div></div>
-        <div class="chips"><span class="chip">W${t.minggu}</span><span class="chip">${esc(t.disiplin)}</span></div></div>
+        <div class="chips">${prioChips(t)}<span class="chip">W${t.minggu}</span><span class="chip">${esc(t.disiplin)}</span></div></div>
       <div class="meta"><span>${esc(t.area)}${t.lokasi ? ' · ' + esc(t.lokasi) : ''}</span><span>PIC ${esc(t.pic || '–')}</span><span>${fmt(t.mulai)} → ${fmt(t.selesai)}${t.mulai && t.selesai ? ' (' + (days(t.mulai, t.selesai) + 1) + ' hr)' : ''}</span></div>
       <div class="bar" style="margin:10px 0 0">
         <span class="seg">
@@ -430,8 +461,10 @@ function vKomit() {
         </span>
         ${t.disepakati === 'Ya' ? stChip(stK(t)) : ''}
         <span style="flex:1"></span>
+        ${prioSel(t)}
         <button class="btn sm" data-act="task-edit" data-kode="${esc(t.kode)}">Ubah</button>
       </div>
+      ${fuNote(t)}
       ${t.disepakati === 'Tidak' ? `<input type="text" style="margin-top:8px" placeholder="Alasan ditunda / catatan rapat" value="${esc(t.alasan)}" data-f="task|${esc(t.kode)}|alasan" class="${t.alasan ? '' : 'need'}">` : ''}
     </div>`).join('') || '<div class="empty">Belum ada task untuk filter ini. Tekan <b>+ Task</b>.</div>'}
   <button class="btn pri fab" data-act="task-new">+ Task</button>`;
@@ -459,7 +492,12 @@ function taskForm(t, isNew) {
     <label class="f">Rencana mulai<input type="date" name="mulai" value="${esc(t.mulai || '')}"></label>
     <label class="f">Rencana selesai<input type="date" name="selesai" value="${esc(t.selesai || '')}"></label>
   </div>
-  <label class="f">Disepakati<select name="disepakati">${opt('', t.disepakati, 'Belum dibahas')}${opt('Ya', t.disepakati)}${opt('Tidak', t.disepakati)}</select></label>
+  <div class="frow">
+    <label class="f">Disepakati<select name="disepakati">${opt('', t.disepakati, 'Belum dibahas')}${opt('Ya', t.disepakati)}${opt('Tidak', t.disepakati)}</select></label>
+    <label class="f">Prioritas<select name="prio">${opt('', t.prio, 'Normal')}${opt('Tinggi', t.prio)}${opt('Urgent', t.prio, 'URGENT')}</select></label>
+  </div>
+  <div class="f">Koordinasi dengan disiplin lain<div class="ck">${D.disiplin.filter(d => d !== t.disiplin).map(d => `<label><input type="checkbox" name="koord" value="${esc(d)}"${koordList(t).includes(d) ? ' checked' : ''}> ${esc(d)}</label>`).join('')}</div></div>
+  <label class="f">Catatan follow-up / koordinasi<textarea name="followup" placeholder="mis. tunggu shop drawing MEP, clash dengan ducting, perlu izin owner…">${esc(t.followup)}</textarea></label>
   <div class="dlg-act">
     ${isNew ? '' : `<button type="button" class="btn danger" data-act="task-del" data-kode="${esc(t.kode)}">Hapus</button>`}
     <span class="sp"></span>
@@ -476,17 +514,19 @@ function vReady() {
   const d = tgl();
   return `
   ${vh('Make Ready · cek kendala', 'ready')}
+  ${prioBar()}
   <div class="grid kpis">
     ${KK.map(k => `<div class="kpi ${cnt(k) ? 'warn' : ''}"><b>${cnt(k)}</b><span>Pending ${KAT[k]}</span></div>`).join('')}
     <div class="kpi ok"><b>${ts.filter(t => stK(t) === 'READY').length}</b><span>Task Ready to Work</span></div>
   </div>
-  ${ts.sort((a, b) => (stK(a) === 'PENDING' ? 0 : 1) - (stK(b) === 'PENDING' ? 0 : 1) || a.kode.localeCompare(b.kode)).map(t => {
+  ${ts.filter(prioOK).sort((a, b) => byPrio(a, b) || (stK(a) === 'PENDING' ? 0 : 1) - (stK(b) === 'PENDING' ? 0 : 1) || a.kode.localeCompare(b.kode)).map(t => {
     const p = prog(t.kode), sp = stP(t);
     return `<div class="item" id="r-${esc(t.kode)}">
       <div class="hd"><div><span class="code">${esc(t.kode)}</span> <span class="ttl">${esc(t.uraian)}</span>
         <div class="sub">${esc(t.pekerjaan)}</div></div>
-        <div class="chips">${stChip(stK(t))}${stChip(sp)}</div></div>
-      <div class="meta"><span>W${t.minggu} · ${esc(t.disiplin)}</span><span>${esc(t.area)}${t.lokasi ? ' · ' + esc(t.lokasi) : ''}</span><span>PIC ${esc(t.pic || '–')}</span><span>${fmt(t.mulai)} → ${fmt(t.selesai)}</span></div>
+        <div class="chips">${prioChips(t)}${stChip(stK(t))}${stChip(sp)}</div></div>
+      <div class="meta"><span>W${t.minggu} · ${esc(t.disiplin)}</span><span>${esc(t.area)}${t.lokasi ? ' · ' + esc(t.lokasi) : ''}</span><span>PIC ${esc(t.pic || '–')}</span><span>${fmt(t.mulai)} → ${fmt(t.selesai)}</span>${prioSel(t)}</div>
+      ${fuNote(t)}
       <div style="display:flex;align-items:center;gap:8px;margin:8px 0"><div class="bar-h" style="flex:1"><i style="width:${Math.min(p || 0, 100)}%"></i></div><small class="muted">Progress ${p == null ? '0' : p}% (dari Daily Log)</small>${stK(t) === 'READY' && sp !== 'FINISH' ? `<button class="btn sm" data-act="daily-new" data-kode="${esc(t.kode)}">+ Janji harian</button>` : ''}</div>
       ${KK.map(k => {
         const c = t.k[k], pend = c.st === 'Pending', f = `task|${esc(t.kode)}|k.${k}.`;
@@ -547,6 +587,7 @@ function vHarian() {
 
   return `
   ${vh('Daily commitment', 'harian')}
+  ${prioBar()}
   <div class="bar">
     <button class="btn sm" data-act="day" data-n="-1" aria-label="Hari sebelumnya">‹</button>
     <input type="date" value="${d}" data-ui="harianTgl">
@@ -562,7 +603,7 @@ function vHarian() {
     <div class="kpi"><b>${pct(P.rata)}</b><span>Rata-rata % tercapai</span></div>
   </div>
   <div class="bar"><button class="btn pri" data-act="daily-new">+ Janji hari ini</button><button class="btn" data-act="daily-copy">Salin janji kemarin</button></div>
-  ${[...new Set(rows.map(x => x.kode))].sort().map(kode => { // 1 header per task komitmen, berisi janji-janjinya hari ini
+  ${[...new Set(rows.map(x => x.kode))].filter(k => !UI.fPrio || prioOK(byKode[k])).sort((a, b) => (byKode[a] && byKode[b] ? byPrio(byKode[a], byKode[b]) : 0) || a.localeCompare(b)).map(kode => { // 1 header per task komitmen, berisi janji-janjinya hari ini
     const t = byKode[kode], js = rows.filter(x => x.kode === kode).sort((a, b) => String(a.id).localeCompare(String(b.id)));
     const lap = js.filter(x => tercapai(x)), ya = js.filter(x => tercapai(x) === 'Ya').length;
     const pHari = Math.max(...js.map(progKum)), pAwal = progKemarin(js[0]), bobot = r6(js.reduce((s, x) => s + (nOr(x.bobot) || 0), 0));
@@ -570,7 +611,7 @@ function vHarian() {
     return `<div class="item grp" id="h-${esc(kode)}">
       <div class="hd"><div><span class="code">${esc(kode)}</span> <span class="ttl">${esc(t?.uraian || '(task tidak ada)')}</span>
         <div class="sub">${esc([t?.pekerjaan, t?.lokasi, t?.pic && 'PIC ' + t.pic].filter(Boolean).join(' · '))}</div></div>
-        <div class="chips"><span class="chip">${js.length} janji</span>${lap.length ? `<span class="chip ${ya === js.length ? 'ok' : 'bad'}">${ya}/${js.length} tercapai</span>` : '<span class="chip warn">belum lapor</span>'}${warn ? `<span class="chip warn">⚠ ${warn}</span>` : ''}${stChip(sp)}</div></div>
+        <div class="chips">${t ? prioChips(t) : ''}<span class="chip">${js.length} janji</span>${lap.length ? `<span class="chip ${ya === js.length ? 'ok' : 'bad'}">${ya}/${js.length} tercapai</span>` : '<span class="chip warn">belum lapor</span>'}${warn ? `<span class="chip warn">⚠ ${warn}</span>` : ''}${stChip(sp)}</div></div>
       <div class="grp-prog"><div class="bar-h"><i style="width:${Math.min(pAwal, 100)}%"></i><i class="today" style="width:${Math.max(0, Math.min(pHari, 100) - Math.min(pAwal, 100))}%"></i></div>
         <small class="muted">Progress ${pc(pAwal)} → <b>${pc(pHari)}</b> hari ini · bobot hari ini ${pc(bobot)} · rencana selesai ${fmt(t?.selesai)}</small></div>
       ${js.map((x, i) => janjiCard(x, t, i + 1, js.length)).join('')}
@@ -610,9 +651,10 @@ function ppcChart(dates) {
 
 /* ---------- ISSUE (Follow Up Issue) ---------- */
 function vIssue() {
-  const L = issueList();
+  const L = issueList().filter(x => prioOK(x.t)).sort((a, b) => byPrio(a.t, b.t));
   return `
   ${vh('Follow up issue / kendala', 'issue')}
+  ${prioBar()}
   <div class="card scroll"><table class="tbl">
     <tr><th>Kategori</th><th class="n">Pending</th><th class="n">Lewat target</th></tr>
     ${KK.map(k => { const a = L.filter(x => x.k === k); return `<tr><td>${KAT[k]}</td><td class="n">${a.length}</td><td class="n">${a.filter(x => x.sisa != null && x.sisa < 0).length}</td></tr>`; }).join('')}
@@ -622,7 +664,7 @@ function vIssue() {
     <div class="item">
       <div class="hd"><div><span class="code">${esc(x.t.kode)}</span> <span class="ttl">${esc(x.c.issue || '(issue belum dipilih)')}</span>
         <div class="sub">${esc(KAT[x.k])}${x.c.detail ? ' — ' + esc(x.c.detail) : ''}</div></div>
-        <div class="chips">${stChip(x.st)}</div></div>
+        <div class="chips">${prioChips(x.t)}${stChip(x.st)}</div></div>
       <div class="meta"><span>${esc(x.t.uraian)}</span><span>${esc(x.t.area)}</span><span>W${x.t.minggu}</span></div>
       <div class="meta"><span>PIC <b>${esc(x.c.pic || '–')}</b></span><span>Target <b>${fmt(x.c.target)}</b></span><span>${x.sisa == null ? '' : x.sisa < 0 ? `<b style="color:var(--bad)">lewat ${-x.sisa} hari</b>` : `sisa ${x.sisa} hari`}</span>
         <a href="#ready" data-act="goto-ready" data-kode="${esc(x.t.kode)}">Update →</a></div>
@@ -680,10 +722,10 @@ function exportCSV(what) {
   if (what === 'tasks') {
     const h = ['Kode Task', 'Minggu Ke', 'Disiplin', 'Pekerjaan (Master Schedule)', 'Area Gedung', 'Uraian Pekerjaan', 'Lokasi / Area', 'PIC', 'Rencana Mulai', 'Rencana Selesai', 'Disepakati', 'Alasan / Catatan Rapat'];
     KK.forEach(k => h.push(KAT[k], 'Issue ' + KAT[k], 'Detail Issue ' + KAT[k], 'PIC ' + KAT[k], 'Target ' + KAT[k]));
-    h.push('Catatan Kendala', 'Progress (%)', 'Penyebab Terlambat', 'Status Kendala', 'Status Pelaksanaan');
+    h.push('Catatan Kendala', 'Progress (%)', 'Penyebab Terlambat', 'Status Kendala', 'Status Pelaksanaan', 'Prioritas', 'Koordinasi Disiplin', 'Catatan Follow-up');
     const rows = D.tasks.map(t => [t.kode, t.minggu, t.disiplin, t.pekerjaan, t.area, t.uraian, t.lokasi, t.pic, t.mulai, t.selesai, t.disepakati, t.alasan,
       ...KK.flatMap(k => [t.k[k].st, t.k[k].issue, t.k[k].detail, t.k[k].pic, t.k[k].target]),
-      t.catatanKendala, prog(t.kode), t.penyebabTerlambat, t.disepakati === 'Ya' ? stK(t) : '', t.disepakati === 'Ya' ? stP(t) : '']);
+      t.catatanKendala, prog(t.kode), t.penyebabTerlambat, t.disepakati === 'Ya' ? stK(t) : '', t.disepakati === 'Ya' ? stP(t) : '', t.prio, t.koord, t.followup]);
     download(`LPS-Input_${tgl()}.csv`, csv([h, ...rows]), 'text/csv');
   } else {
     const h = ['Tanggal', 'Kode Task', 'Target Hari Ini', 'Bobot Target (% dari task)', '% Tercapai Harian (actual ÷ bobot)', 'Tercapai?', 'Progress s/d Kemarin', 'Kontribusi Hari Ini', 'Progress Kumulatif (%)', 'Penyebab Tidak Tercapai', 'Catatan'];
@@ -695,42 +737,43 @@ function exportCSV(what) {
 /* ---------- PDF per PIC (cetak browser → "Simpan sebagai PDF"; tanpa library, jalan offline) ---------- */
 const vh = (title, r) => `<div class="vh"><h2>${esc(title)}</h2><button class="btn sm" data-act="pdf" data-r="${r}">PDF per PIC</button></div>`;
 const picOf = s => String(s || '').trim() || '(tanpa PIC)';
+const prioTxt = t => [t.prio ? t.prio.toUpperCase() : '', koordList(t).length ? '↔ ' + koordList(t).join(', ') : '', t.followup].filter(Boolean).join('\n');
 const rentang = t => t.mulai || t.selesai ? `${fmt(t.mulai)} – ${fmt(t.selesai)}` : '–';
 /* Tiap laporan: judul, kolom, dan baris {pic, cells}. Make Ready / Komitmen / Harian = PIC task; Issue = PIC kendala. */
 const REPORTS = {
   komit: { title: 'Komitmen Mingguan', week: true,
-    head: ['Kode', 'Pekerjaan', 'Uraian', 'Lokasi / Area', 'Rencana', 'Disepakati', 'Alasan / catatan rapat'],
-    rows: o => D.tasks.filter(inW(o.week)).sort((a, b) => a.kode.localeCompare(b.kode)).map(t => ({ pic: picOf(t.pic),
-      cells: [t.kode, t.pekerjaan, t.uraian, [t.lokasi, t.area].filter(Boolean).join(' · '), rentang(t), t.disepakati || '–', t.alasan] })) },
+    head: ['Kode', 'Prioritas · koordinasi', 'Pekerjaan', 'Uraian', 'Lokasi / Area', 'Rencana', 'Disepakati', 'Alasan / catatan rapat'],
+    rows: o => D.tasks.filter(inW(o.week)).filter(prioOK).sort((a, b) => byPrio(a, b) || a.kode.localeCompare(b.kode)).map(t => ({ pic: picOf(t.pic),
+      cells: [t.kode, prioTxt(t), t.pekerjaan, t.uraian, [t.lokasi, t.area].filter(Boolean).join(' · '), rentang(t), t.disepakati || '–', t.alasan] })) },
   ready: { title: 'Make Ready – Cek Kendala', week: true,
-    head: ['Kode', 'Uraian', 'Lokasi', 'Rencana', 'Status kendala', 'Kendala pending (issue · PIC · target)', 'Progress', 'Pelaksanaan'],
-    rows: o => D.tasks.filter(t => t.disepakati === 'Ya' && inW(o.week)(t)).sort((a, b) => a.kode.localeCompare(b.kode)).map(t => ({ pic: picOf(t.pic),
-      cells: [t.kode, t.uraian, t.lokasi, rentang(t), stK(t),
+    head: ['Kode', 'Prioritas · koordinasi', 'Uraian', 'Lokasi', 'Rencana', 'Status kendala', 'Kendala pending (issue · PIC · target)', 'Progress', 'Pelaksanaan'],
+    rows: o => D.tasks.filter(t => t.disepakati === 'Ya' && inW(o.week)(t) && prioOK(t)).sort((a, b) => byPrio(a, b) || a.kode.localeCompare(b.kode)).map(t => ({ pic: picOf(t.pic),
+      cells: [t.kode, prioTxt(t), t.uraian, t.lokasi, rentang(t), stK(t),
         KK.filter(k => t.k[k].st === 'Pending').map(k => { const c = t.k[k]; return `${KAT[k]}: ${c.issue || '?'}${c.detail ? ' – ' + c.detail : ''} · ${c.pic || 'PIC?'} · ${fmt(c.target)}`; }).join('\n') || 'Semua OK',
         pc(prog(t.kode)), stP(t)] })) },
   harian: { title: 'Daily Commitment', date: true,
     head: ['Kode', 'Uraian / lokasi', 'Target hari ini', 'Bobot', 'Actual', '% tercapai', 'Tercapai?', 'Progress kumulatif', 'Penyebab tidak tercapai', 'Catatan'],
-    rows: o => D.daily.filter(x => x.tgl === o.tgl).map(x => { const t = D.tasks.find(t => t.kode === x.kode); return { pic: picOf(t?.pic),
-      cells: [x.kode, [t?.uraian, t?.lokasi].filter(Boolean).join(' · '), x.target, pc(x.bobot), x.capaian == null ? '' : pc(aktual(x)), x.capaian == null ? '' : pc(x.capaian), tercapai(x),
+    rows: o => D.daily.filter(x => x.tgl === o.tgl).map(x => { const t = D.tasks.find(t => t.kode === x.kode); return (!UI.fPrio || prioOK(t)) && { pic: picOf(t?.pic),
+      cells: [x.kode + (t?.prio ? '\n' + t.prio.toUpperCase() : ''), [t?.uraian, t?.lokasi].filter(Boolean).join(' · '), x.target, pc(x.bobot), x.capaian == null ? '' : pc(aktual(x)), x.capaian == null ? '' : pc(x.capaian), tercapai(x),
         x.capaian == null ? '' : pc(progKum(x)), x.penyebab, x.catatan] }; }) },
   issue: { title: 'Follow Up Issue / Kendala', week: true,
     head: ['Kode', 'Task', 'Kategori', 'Issue', 'Detail', 'Target', 'Sisa hari', 'Status'],
-    rows: o => issueList(o.week).map(x => ({ pic: picOf(x.c.pic || x.t.pic),
-      cells: [x.t.kode, [x.t.uraian, x.t.lokasi].filter(Boolean).join(' · '), KAT[x.k], x.c.issue, x.c.detail, fmt(x.c.target), x.sisa ?? '–', x.st] })) },
+    rows: o => issueList(o.week).filter(x => prioOK(x.t)).sort((a, b) => byPrio(a.t, b.t)).map(x => ({ pic: picOf(x.c.pic || x.t.pic),
+      cells: [x.t.kode + (x.t.prio ? '\n' + x.t.prio.toUpperCase() : ''), [x.t.uraian, x.t.lokasi].filter(Boolean).join(' · '), KAT[x.k], x.c.issue, x.c.detail, fmt(x.c.target), x.sisa ?? '–', x.st] })) },
 };
 function pdfOpts(r) { return { week: UI.week, tgl: UI.harianTgl || tgl(), pic: '' , r }; }
 function pdfForm(r) {
   const R = REPORTS[r], o = pdfOpts(r);
-  const pics = [...new Set(R.rows(o).map(x => x.pic))].sort();
+  const pics = [...new Set(R.rows(o).filter(Boolean).map(x => x.pic))].sort();
   return `<h3>PDF ${esc(R.title)}</h3>
   ${R.week ? `<label class="f">Minggu<select name="week">${opt('', o.week, 'Semua minggu')}${D.meta.weeks.map(x => opt(x.w, o.week, `W${x.w} · ${x.label}`)).join('')}</select></label>` : ''}
   ${R.date ? `<label class="f">Tanggal<input type="date" name="tgl" value="${o.tgl}"></label>` : ''}
   <label class="f">PIC<select name="pic">${opt('', '', 'Semua PIC – 1 halaman per PIC')}${pics.map(p => opt(p, '')).join('')}</select></label>
-  <p class="muted" style="font-size:13px">Daftar PIC mengikuti ${R.date ? 'tanggal' : 'minggu'} yang sedang dibuka. Di jendela cetak pilih <b>Simpan sebagai PDF</b>, lalu kirim ke PIC.${r === 'issue' ? ' Issue dikelompokkan per PIC kendala.' : ''}</p>
+  <p class="muted" style="font-size:13px">Daftar PIC mengikuti ${R.date ? 'tanggal' : 'minggu'} yang sedang dibuka. Di jendela cetak pilih <b>Simpan sebagai PDF</b>, lalu kirim ke PIC.${UI.fPrio ? ` Filter prioritas aktif: <b>${esc(FPRIO[UI.fPrio])}</b>.` : ''}${r === 'issue' ? ' Issue dikelompokkan per PIC kendala.' : ''}</p>
   <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Buat PDF</button></div>`;
 }
 function printReport(r, o) {
-  const R = REPORTS[r], rows = R.rows(o).filter(x => !o.pic || x.pic === o.pic);
+  const R = REPORTS[r], rows = R.rows(o).filter(x => x && (!o.pic || x.pic === o.pic));
   if (!rows.length) { toast('Tidak ada data untuk dicetak'); return; }
   const groups = {};
   rows.forEach(x => (groups[x.pic] ||= []).push(x.cells));
@@ -768,6 +811,7 @@ function editTask(t, isNew) {
   openDlg(taskForm(t, isNew), fd => {
     const v = Object.fromEntries(fd.entries());
     v.minggu = +v.minggu;
+    v.koord = fd.getAll('koord').join(','); // checkbox: bisa lebih dari satu
     if (isNew && D.tasks.some(x => x.kode === v.kode)) { toast('Kode ' + v.kode + ' sudah dipakai'); return; }
     const p = D.pekerjaan.find(x => x.nama === v.pekerjaan);
     if (p && !v.disiplin) v.disiplin = p.disiplin;
@@ -785,7 +829,7 @@ function newTask(pek) {
     kode: nextKode(), minggu: w, disiplin: p?.disiplin === 'PRELIM' ? 'CSA' : (p?.disiplin || 'CSA'), pekerjaan: pek || '',
     area: D.areas.includes(p?.area) ? p.area : '', uraian: '', lokasi: '', pic: '',
     mulai: wo?.start || null, selesai: wo?.end || null, disepakati: '', alasan: '',
-    inLPS: false, k: blankK(), catatanKendala: '', penyebabTerlambat: ''
+    inLPS: false, k: blankK(), catatanKendala: '', penyebabTerlambat: '', prio: '', koord: '', followup: ''
   }, true);
 }
 
@@ -855,6 +899,7 @@ document.addEventListener('click', e => {
         if (syncOn()) syncNow(true);
       });
       break;
+    case 'fprio': UI.fPrio = el.dataset.v; if (el.tagName === 'A') break; render(); break; // <a> → hashchange render
     case 'pdf': {
       const r = el.dataset.r;
       openDlg(pdfForm(r), fd => printReport(r, { week: fd.has('week') ? fd.get('week') : UI.week, tgl: fd.get('tgl') || UI.harianTgl || tgl(), pic: fd.get('pic') || '' }));
@@ -895,6 +940,7 @@ document.addEventListener('click', e => {
     }
     case 'day': UI.harianTgl = addDays(UI.harianTgl || tgl(), +el.dataset.n); render(); break;
     case 'goto-ready': UI.focus = 'r-' + kode; if (UI.view === 'ready') render(); break;
+    case 'goto-komit': UI.focus = 'k-' + kode; if (UI.view === 'komit') render(); break;
     case 'exp-json': download(`LPS-Batik_backup_${tgl()}.json`, JSON.stringify({ ...D, sync: undefined }, null, 1), 'application/json'); break; // tanpa kode akses
     case 'sync-now': syncNow(true); break;
     case 'sync-off':
