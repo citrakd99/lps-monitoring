@@ -624,11 +624,37 @@ function janjiCard(x, t, no, n) {
 }
 
 /* ---------- HARIAN (Daily Log + PPC Harian + Board 4) ---------- */
+/* Tampilan Harian: 1 hari, atau 2 hari sekaligus untuk rutinitas update:
+   kh = kemarin (lapor actual) + hari ini (buat janji) · hb = hari ini (lapor actual) + besok (rencana janji) */
+const HMODE = { '1': '1 hari', kh: 'Kemarin + hari ini', hb: 'Hari ini + besok' };
+function harianHari() {
+  const a = UI.harianTgl || tgl(), m = D.settings.hMode || '1';
+  if (m === 'kh') return [[addDays(a, -1), 'Kemarin · laporkan actual'], [a, 'Hari ini · buat janji']];
+  if (m === 'hb') return [[a, 'Hari ini · laporkan actual'], [addDays(a, 1), 'Besok · rencana janji']];
+  return [[a, '']];
+}
+function harianGroups(d) { // 1 header per task komitmen, berisi janji-janjinya pada tanggal d
+  const rows = D.daily.filter(x => x.tgl === d), byKode = Object.fromEntries(D.tasks.map(t => [t.kode, t]));
+  return [...new Set(rows.map(x => x.kode))].filter(k => !UI.fPrio || prioOK(byKode[k])).sort((a, b) => (byKode[a] && byKode[b] ? byPrio(byKode[a], byKode[b]) : 0) || a.localeCompare(b)).map(kode => {
+    const t = byKode[kode], js = rows.filter(x => x.kode === kode).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    const lap = js.filter(x => tercapai(x)), ya = js.filter(x => tercapai(x) === 'Ya').length;
+    const pHari = Math.max(...js.map(progKum)), pAwal = progKemarin(js[0]), bobot = r6(js.reduce((s, x) => s + (nOr(x.bobot) || 0), 0));
+    const warn = js.filter(x => cek(x, t).startsWith('⚠')).length, sp = t ? stP(t) : '';
+    return `<div class="item grp" id="h-${esc(d)}-${esc(kode)}">
+      <div class="hd"><div><span class="code">${esc(kode)}</span> <span class="ttl">${esc(t?.uraian || '(task tidak ada)')}</span>
+        <div class="sub">${esc([t?.pekerjaan, t?.lokasi, t?.pic && 'PIC ' + t.pic].filter(Boolean).join(' · '))}</div></div>
+        <div class="chips">${t ? prioChips(t) : ''}<span class="chip">${js.length} janji</span>${lap.length ? `<span class="chip ${ya === js.length ? 'ok' : 'bad'}">${ya}/${js.length} tercapai</span>` : '<span class="chip warn">belum lapor</span>'}${warn ? `<span class="chip warn">⚠ ${warn}</span>` : ''}${stChip(sp)}</div></div>
+      <div class="grp-prog"><div class="bar-h"><i style="width:${Math.min(pAwal, 100)}%"></i><i class="today" style="width:${Math.max(0, Math.min(pHari, 100) - Math.min(pAwal, 100))}%"></i></div>
+        <small class="muted">Progress ${pc(pAwal)} → <b>${pc(pHari)}</b> · bobot ${fmt(d)} ${pc(bobot)} · rencana selesai ${fmt(t?.selesai)}</small></div>
+      ${js.map((x, i) => janjiCard(x, t, i + 1, js.length)).join('')}
+      <div class="bar" style="margin:8px 0 0"><button class="btn sm" data-act="daily-new" data-kode="${esc(kode)}" data-tgl="${d}">+ Janji untuk task ini</button></div>
+    </div>`;
+  }).join('') || `<div class="empty">Belum ada janji untuk ${fmt(d)}.</div>`;
+}
 function vHarian() {
-  const d = UI.harianTgl || tgl();
-  const rows = D.daily.filter(x => x.tgl === d);
+  const hari = harianHari(), dua = hari.length > 1;
+  const d = hari[0][0]; // KPI: hari yang dilaporkan actual-nya
   const P = ppcDay(d), tgt = D.meta.targetPPC;
-  const byKode = Object.fromEntries(D.tasks.map(t => [t.kode, t]));
   const dates = [...new Set(D.daily.map(x => x.tgl))].filter(x => x <= tgl()).sort().slice(-14);
   const par = {};
   D.daily.filter(x => tercapai(x) === 'Tidak').forEach(x => { const k = x.penyebab || '(belum diisi)'; par[k] = (par[k] || 0) + 1; });
@@ -638,37 +664,28 @@ function vHarian() {
 
   return `
   ${vh('Daily commitment', 'harian')}
+  <div class="prio-f">${Object.entries(HMODE).map(([k, l]) => `<button type="button" data-act="hmode" data-v="${k}" class="${(D.settings.hMode || '1') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
   ${prioBar()}
   <div class="bar">
     <button class="btn sm" data-act="day" data-n="-1" aria-label="Hari sebelumnya">‹</button>
-    <input type="date" value="${d}" data-ui="harianTgl">
+    <input type="date" value="${UI.harianTgl || tgl()}" data-ui="harianTgl">
     <button class="btn sm" data-act="day" data-n="1" aria-label="Hari berikutnya">›</button>
-    <span class="muted">W${weekOf(d)}</span>
+    <span class="muted">W${weekOf(UI.harianTgl || tgl())}${dua ? ` · ${hari.map(h => fmt(h[0])).join(' & ')}` : ''}</span>
   </div>
   <div class="grid kpis">
     <div class="kpi"><b>${P.n}</b><span>Dijanjikan</span></div>
     <div class="kpi ok"><b>${P.ya}</b><span>Tercapai</span></div>
     <div class="kpi bad"><b>${P.tidak}</b><span>Tidak tercapai</span></div>
     <div class="kpi warn"><b>${P.n - P.ya - P.tidak}</b><span>Belum dilaporkan</span></div>
-    <div class="kpi ${P.ppc == null ? '' : P.ppc >= tgt ? 'ok' : 'bad'}"><b>${pct(P.ppc)}</b><span>PPC hari ini (target ${pct(tgt)})</span></div>
+    <div class="kpi ${P.ppc == null ? '' : P.ppc >= tgt ? 'ok' : 'bad'}"><b>${pct(P.ppc)}</b><span>PPC ${dua ? fmt(d) : 'hari ini'} (target ${pct(tgt)})</span></div>
     <div class="kpi"><b>${pct(P.rata)}</b><span>Rata-rata % tercapai</span></div>
   </div>
-  <div class="bar"><button class="btn pri" data-act="daily-new">+ Janji hari ini</button><button class="btn" data-act="daily-copy">Salin janji kemarin</button></div>
-  ${[...new Set(rows.map(x => x.kode))].filter(k => !UI.fPrio || prioOK(byKode[k])).sort((a, b) => (byKode[a] && byKode[b] ? byPrio(byKode[a], byKode[b]) : 0) || a.localeCompare(b)).map(kode => { // 1 header per task komitmen, berisi janji-janjinya hari ini
-    const t = byKode[kode], js = rows.filter(x => x.kode === kode).sort((a, b) => String(a.id).localeCompare(String(b.id)));
-    const lap = js.filter(x => tercapai(x)), ya = js.filter(x => tercapai(x) === 'Ya').length;
-    const pHari = Math.max(...js.map(progKum)), pAwal = progKemarin(js[0]), bobot = r6(js.reduce((s, x) => s + (nOr(x.bobot) || 0), 0));
-    const warn = js.filter(x => cek(x, t).startsWith('⚠')).length, sp = t ? stP(t) : '';
-    return `<div class="item grp" id="h-${esc(kode)}">
-      <div class="hd"><div><span class="code">${esc(kode)}</span> <span class="ttl">${esc(t?.uraian || '(task tidak ada)')}</span>
-        <div class="sub">${esc([t?.pekerjaan, t?.lokasi, t?.pic && 'PIC ' + t.pic].filter(Boolean).join(' · '))}</div></div>
-        <div class="chips">${t ? prioChips(t) : ''}<span class="chip">${js.length} janji</span>${lap.length ? `<span class="chip ${ya === js.length ? 'ok' : 'bad'}">${ya}/${js.length} tercapai</span>` : '<span class="chip warn">belum lapor</span>'}${warn ? `<span class="chip warn">⚠ ${warn}</span>` : ''}${stChip(sp)}</div></div>
-      <div class="grp-prog"><div class="bar-h"><i style="width:${Math.min(pAwal, 100)}%"></i><i class="today" style="width:${Math.max(0, Math.min(pHari, 100) - Math.min(pAwal, 100))}%"></i></div>
-        <small class="muted">Progress ${pc(pAwal)} → <b>${pc(pHari)}</b> hari ini · bobot hari ini ${pc(bobot)} · rencana selesai ${fmt(t?.selesai)}</small></div>
-      ${js.map((x, i) => janjiCard(x, t, i + 1, js.length)).join('')}
-      <div class="bar" style="margin:8px 0 0"><button class="btn sm" data-act="daily-new" data-kode="${esc(kode)}">+ Janji untuk task ini</button></div>
-    </div>`;
-  }).join('') || '<div class="empty">Belum ada janji untuk tanggal ini.</div>'}
+  ${dua ? `<div class="hari2">${hari.map(([hd, lbl], i) => `<section class="hari-kol">
+      <div class="hari-hd"><div><b>${esc(lbl)}</b><span class="muted">${fmt(hd)} · W${weekOf(hd)}</span></div>${(() => { const p = ppcDay(hd); return `<span class="chip ${p.n && p.ya + p.tidak === p.n ? 'ok' : p.n ? 'warn' : ''}">${p.n} janji${p.n ? ` · ${p.ya + p.tidak}/${p.n} lapor` : ''}</span>`; })()}</div>
+      <div class="bar"><button class="btn ${i ? 'pri' : ''} sm" data-act="daily-new" data-tgl="${hd}">+ Janji ${fmt(hd)}</button>${i ? `<button class="btn sm" data-act="daily-copy" data-tgl="${hd}" data-from="${hari[0][0]}">Salin dari ${fmt(hari[0][0])}</button>` : ''}</div>
+      ${harianGroups(hd)}</section>`).join('')}</div>`
+    : `<div class="bar"><button class="btn pri" data-act="daily-new">+ Janji hari ini</button><button class="btn" data-act="daily-copy">Salin janji kemarin</button></div>
+  ${harianGroups(d)}`}
 
   <div class="two">
     <div class="card"><h3>PPC harian (14 tanggal terakhir)</h3>${ppcChart(dates)}</div>
@@ -1085,8 +1102,9 @@ function jrInfo(kode) {
   const t = D.tasks.find(x => x.kode === kode); if (!t) return '';
   return `Rencana ${fmt(t.mulai)} – ${fmt(t.selesai)} · progress ${pc(prog(kode) || 0)} · janji belum dilaporkan ${pc(belumLapor(kode))} · <b>sisa untuk direncanakan ${pc(sisaRencana(kode))}</b>`;
 }
-function newDaily(kode) {
-  const d = UI.harianTgl || tgl();
+let jrTgl = null; // tanggal default baris janji di dialog
+function newDaily(kode, tglJanji) {
+  const d = jrTgl = tglJanji || UI.harianTgl || tgl();
   const ready = D.tasks.filter(t => t.disepakati === 'Ya' && stK(t) === 'READY' && stP(t) !== 'FINISH');
   if (!ready.length) { toast('Belum ada task READY'); return; }
   const k0 = ready.some(t => t.kode === kode) ? kode : ready[0].kode;
@@ -1109,7 +1127,7 @@ function newDaily(kode) {
 }
 function jrAuto() { // satu baris per hari dari tanggal Harian (atau rencana mulai) s/d rencana selesai, bobot sisa dibagi rata
   const t = D.tasks.find(x => x.kode === $('#jr-kode').value);
-  const from = [UI.harianTgl || tgl(), t.mulai].filter(Boolean).sort().at(-1), to = t.selesai || from;
+  const from = [jrTgl || UI.harianTgl || tgl(), t.mulai].filter(Boolean).sort().at(-1), to = t.selesai || from;
   const n = Math.min(14, Math.max(1, days(from, to) + 1)), sisa = sisaRencana(t.kode);
   if (!sisa) { toast('Bobot task sudah habis direncanakan'); return; }
   const b = Math.floor(sisa / n * 10) / 10;
@@ -1180,9 +1198,10 @@ document.addEventListener('click', e => {
       break;
     case 'sepakat': task.disepakati = task.disepakati === el.dataset.v ? '' : el.dataset.v; task.inLPS = task.disepakati === 'Ya'; save(); render(); break;
     case 'kst': task.k[el.dataset.k].st = el.dataset.v; save(); render(); break;
-    case 'daily-new': newDaily(el.dataset.kode); break;
+    case 'daily-new': newDaily(el.dataset.kode, el.dataset.tgl); break;
+    case 'hmode': D.settings.hMode = el.dataset.v; persist(); render(); break; // per perangkat, tidak disinkron
     case 'jr-add': {
-      const last = [...document.querySelectorAll('#jr-rows [name=jtgl]')].at(-1)?.value || UI.harianTgl || tgl();
+      const last = [...document.querySelectorAll('#jr-rows [name=jtgl]')].at(-1)?.value || jrTgl || tgl();
       $('#jr-rows').insertAdjacentHTML('beforeend', janjiRow(addDays(last, 1)));
       break;
     }
@@ -1190,8 +1209,8 @@ document.addEventListener('click', e => {
     case 'jr-auto': jrAuto(); break;
     case 'daily-del': D.daily = D.daily.filter(r => r.id !== el.dataset.id); save(); render(); break;
     case 'daily-copy': {
-      const d = UI.harianTgl || tgl();
-      const prev = [...new Set(D.daily.filter(x => x.tgl < d).map(x => x.tgl))].sort().at(-1);
+      const d = el.dataset.tgl || UI.harianTgl || tgl();
+      const prev = D.daily.some(x => x.tgl === el.dataset.from) ? el.dataset.from : [...new Set(D.daily.filter(x => x.tgl < d).map(x => x.tgl))].sort().at(-1);
       if (!prev) { toast('Tidak ada log sebelumnya'); break; }
       let n = 0;
       D.daily.filter(x => x.tgl === prev).forEach(x => {
@@ -1199,7 +1218,7 @@ document.addEventListener('click', e => {
         if (!t || stP(t) === 'FINISH' || D.daily.some(y => y.tgl === d && y.kode === x.kode)) return;
         D.daily.push({ id: newId(), tgl: d, kode: x.kode, target: '', bobot: null, capaian: null, penyebab: '', catatan: '' }); n++;
       });
-      save(); render(); toast(`${n} janji disalin dari ${fmt(prev)} – isi target & bobot hari ini`);
+      save(); render(); toast(`${n} janji disalin dari ${fmt(prev)} ke ${fmt(d)} – isi target & bobot`);
       break;
     }
     case 'day': UI.harianTgl = addDays(UI.harianTgl || tgl(), +el.dataset.n); render(); break;
