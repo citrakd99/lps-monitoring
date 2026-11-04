@@ -1109,7 +1109,11 @@ function newDaily(kode, tglJanji) {
   if (!ready.length) { toast('Belum ada task READY'); return; }
   const k0 = ready.some(t => t.kode === kode) ? kode : ready[0].kode;
   openDlg(`<h3>Janji harian</h3>
-    <label class="f">Task (hanya READY & belum FINISH)<select name="kode" id="jr-kode" required>${ready.map(t => opt(t.kode, k0, `${t.kode} · ${t.uraian}${t.lokasi ? ' · ' + t.lokasi : ''}`)).join('')}</select></label>
+    <div class="f">Task (hanya READY & belum FINISH)
+      ${ready.length > 5 ? '<input type="search" id="jr-cari" placeholder="Cari kode / uraian / lokasi / PIC…" style="margin:3px 0 6px">' : ''}
+      <div class="pick" id="jr-pick" role="radiogroup">${ready.map(t => `<label class="pick-i" data-cari="${esc((t.kode + ' ' + t.uraian + ' ' + t.lokasi + ' ' + t.pic).toLowerCase())}">
+        <input type="radio" name="kode" value="${esc(t.kode)}"${t.kode === k0 ? ' checked' : ''}>
+        <span><b>${esc(t.kode)}</b> ${esc(t.uraian)}<small>${esc([t.lokasi, t.pic && 'PIC ' + t.pic].filter(Boolean).join(' · '))}</small></span></label>`).join('')}</div></div>
     <p class="muted" id="jr-info" style="font-size:13px;margin:-4px 0 10px">${jrInfo(k0)}</p>
     <div class="muted" style="font-size:12px;margin-bottom:4px">Tanggal · bobot (% dari task) · target terukur. Boleh beberapa baris di tanggal yang sama.</div>
     <div id="jr-rows">${janjiRow(d)}</div>
@@ -1126,7 +1130,7 @@ function newDaily(kode, tglJanji) {
   });
 }
 function jrAuto() { // satu baris per hari dari tanggal Harian (atau rencana mulai) s/d rencana selesai, bobot sisa dibagi rata
-  const t = D.tasks.find(x => x.kode === $('#jr-kode').value);
+  const t = D.tasks.find(x => x.kode === $('#jr-pick input:checked')?.value);
   const from = [jrTgl || UI.harianTgl || tgl(), t.mulai].filter(Boolean).sort().at(-1), to = t.selesai || from;
   const n = Math.min(14, Math.max(1, days(from, to) + 1)), sisa = sisaRencana(t.kode);
   if (!sisa) { toast('Bobot task sudah habis direncanakan'); return; }
@@ -1274,7 +1278,7 @@ document.addEventListener('change', e => {
     else if (r) r.aktual = v; else D.manpower.push({ id, tgl: d, item: el.dataset.mp, aktual: v, catatan: '' });
     save(); render(); return;
   }
-  if (el.id === 'jr-kode') { $('#jr-info').innerHTML = jrInfo(el.value); return; }
+  if (el.name === 'kode' && el.closest('#jr-pick')) { $('#jr-info').innerHTML = jrInfo(el.value); return; }
   if (!el.dataset.f) return;
   const [kind, id, path] = el.dataset.f.split('|');
   let v = el.value;
@@ -1291,6 +1295,11 @@ document.addEventListener('change', e => {
 });
 // Pencarian langsung saat mengetik
 document.addEventListener('input', e => {
+  if (e.target.id === 'jr-cari') { // saring daftar task di dialog janji
+    const q = e.target.value.toLowerCase().trim();
+    document.querySelectorAll('#jr-pick .pick-i').forEach(l => { l.hidden = !!q && !l.dataset.cari.includes(q); });
+    return;
+  }
   if (e.target.dataset.ui !== 'jSearch') return;
   UI.jSearch = e.target.value;
   const pos = e.target.selectionStart;
