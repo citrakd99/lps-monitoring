@@ -1,7 +1,9 @@
 """Ekspor workbook LPS (Excel) ke app/data/seed.json untuk PWA.
 
-Pemakaian:
-    python export_excel.py "LPS - WEEKLY - BATIK PROJECT - INTERNAL.xlsx" [output.json]
+Pemakaian (dari folder lps-pwa):
+    python tools/export_excel.py                      -> Excel LPS di folder ProjCTR (induk lps-pwa)
+    python tools/export_excel.py "<file.xlsx>" [output.json]
+File pendamping "Man Power Tracking.xlsx" & "dokument tracking.xlsx" dibaca dari folder yang sama dengan Excel LPS.
 
 Peta kolom lengkap ada di ../PETA-EXCEL-KE-APLIKASI.md
 """
@@ -236,7 +238,11 @@ def export_dok(path):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        sys.exit(__doc__)
-    default_out = Path(__file__).resolve().parent.parent / "app" / "data" / "seed.json"
-    export(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else default_out)
+    here = Path(__file__).resolve().parent.parent          # folder lps-pwa
+    xlsx = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("LPS - WEEKLY - BATIK PROJECT - INTERNAL.xlsx")
+    if not xlsx.exists():                                   # cari juga di folder induk lps-pwa (ProjCTR)
+        alt = here.parent / xlsx.name
+        if not alt.exists():
+            sys.exit(f"File Excel tidak ditemukan: {xlsx}\nDicari juga di: {alt}\n\n{__doc__}")
+        xlsx = alt
+    export(xlsx, sys.argv[2] if len(sys.argv) > 2 else here / "app" / "data" / "seed.json")
