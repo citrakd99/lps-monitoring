@@ -226,6 +226,15 @@ select.prio-sel { width: auto; min-height: 30px; padding: 3px 8px; font-size: 12
 .janji { border-left: 3px solid var(--line); padding: 8px 0 4px 10px; margin-top: 10px; }
 .janji .hd { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 14px; }
 
+/* pilihan task di dialog janji: daftar rata kiri, teks panjang membungkus (pengganti dropdown native HP) */
+.pick { max-height: 38vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; margin-top: 3px; background: var(--surface); }
+.pick-i { display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); cursor: pointer; color: var(--text); font-size: 14px; line-height: 1.35; }
+.pick-i:last-child { border-bottom: 0; }
+.pick-i input { width: auto; min-height: 0; margin: 3px 0 0; flex: 0 0 auto; }
+.pick-i span { min-width: 0; overflow-wrap: anywhere; }
+.pick-i small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.pick-i:has(input:checked) { background: var(--info-bg); }
+
 /* dialog beberapa janji harian: tanggal · bobot · hapus / target (satu baris penuh) */
 .jr { display: grid; grid-template-columns: 1fr 6.5em auto; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .jr input[name=jtarget] { grid-column: 1 / -1; }
