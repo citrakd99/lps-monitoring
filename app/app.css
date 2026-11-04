@@ -209,6 +209,15 @@ select.prio-sel { width: auto; min-height: 30px; padding: 3px 8px; font-size: 12
 .ck { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 6px 0 10px; font-size: 14px; }
 .ck input { width: auto; min-height: 0; margin-right: 4px; }
 
+/* Harian 2 hari: berdampingan di layar lebar, bertumpuk di HP */
+.hari2 { display: grid; gap: 14px; }
+@media (min-width: 900px) { .hari2 { grid-template-columns: 1fr 1fr; align-items: start; } }
+.hari-kol { background: var(--surface-2); border-radius: var(--radius); padding: 10px; }
+.hari-hd { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.hari-hd > div { display: flex; flex-direction: column; }
+.hari-hd b { font-size: 15px; }
+.hari-hd .muted { font-size: 12px; }
+
 /* Harian: header task komitmen berisi beberapa janji */
 .grp-prog { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 4px; }
 .grp-prog .bar-h { display: flex; }
