@@ -8,7 +8,7 @@ const KEY = 'lps-batik-v1';
 const KAT = { eng: 'Engineering / HSE', mat: 'Material & Alat', mp: 'Man Power', oth: 'Other' };
 const KK = Object.keys(KAT);
 const BLN = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-const VIEWS = ['dash', 'jadwal', 'komit', 'ready', 'harian', 'issue'];
+const VIEWS = ['dash', 'jadwal', 'komit', 'ready', 'harian', 'issue', 'sd'];
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -16,7 +16,7 @@ const opt = (v, cur, label) => `<option value="${esc(v)}"${String(v) === String(
 const pct = (x, d = 0) => x == null || isNaN(x) ? '–' : (x * 100).toFixed(d) + '%';
 
 let D = null;
-const UI = { view: 'dash', week: '', jSearch: '', jDis: '', jLook: '2', jFrom: null, harianTgl: null, focus: null, fPrio: '' };
+const UI = { view: 'dash', week: '', jSearch: '', jDis: '', jLook: '2', jFrom: null, harianTgl: null, focus: null, fPrio: '', sd: 'mp', mpTgl: null, mpAll: false, dokF: 'open', dokScope: '' };
 
 /* ---------- tanggal ---------- */
 const todayISO = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
@@ -119,9 +119,9 @@ async function fetchSeed() {
   if (!r.ok) throw new Error('seed.json tidak ditemukan');
   return r.json();
 }
-const MASTER_F = ['meta', 'pekerjaan', 'areas', 'areaMap', 'issues', 'penyebab', 'disiplin', 'source', 'exportedAt'];
+const MASTER_F = ['meta', 'pekerjaan', 'areas', 'areaMap', 'issues', 'penyebab', 'disiplin', 'source', 'exportedAt', 'mpPlan'];
 const blank = () => ({ meta: { project: '', tglUpdate: null, targetPPC: 0.8, weeks: [], scurve: [] }, pekerjaan: [], areas: [], areaMap: {},
-  issues: Object.fromEntries(KK.map(k => [k, []])), penyebab: [], disiplin: ['CSA', 'MEP', 'ARS', 'PRELIM'], tasks: [], daily: [], progress: [] });
+  issues: Object.fromEntries(KK.map(k => [k, []])), penyebab: [], disiplin: ['CSA', 'MEP', 'ARS', 'PRELIM'], tasks: [], daily: [], progress: [], mpPlan: [], manpower: [], dokumen: [] });
 const hasMaster = () => D.meta.weeks.length > 0;
 function applyMaster(m) { // jadwal & referensi diganti; task, daily log, target PPC lokal dipertahankan
   const ppc = hasMaster() ? D.meta.targetPPC : m.meta.targetPPC;
@@ -191,6 +191,7 @@ function normalize(s) {
   s.sync = Object.assign({ url: '', key: '', user: '', rev: 0, masterVer: '', h: {}, dirty: {}, tomb: {}, lastOk: null, error: '' }, s.sync || {});
   s.tasks.forEach(normTask);
   s.progress = (s.progress || []).map(normProg);
+  s.mpPlan = s.mpPlan || []; s.manpower = (s.manpower || []).map(normMp); s.dokumen = (s.dokumen || []).map(normDok);
   (s.daily || []).forEach(x => { // migrasi model lama tidak dihitung sebagai perubahan (agar baris yang dihapus tim tidak terkirim balik)
     const id = 'daily:' + x.id, sama = s.sync.h[id] === recHash(x);
     normDaily(x);
@@ -206,7 +207,7 @@ function save() { stamp(); persist(); scheduleSync(); }
 /* ---------- sinkron tim (Google Sheets via Apps Script, lihat gas/Code.gs) ----------
    Setiap record (task / daily log) diberi _u (waktu ubah) & _by (nama). Perubahan dideteksi dengan
    membandingkan hash isi record, jadi semua aksi cukup memanggil save(). Konflik: _u terbaru menang. */
-const TBL = { tasks: 'kode', daily: 'id', progress: 'w' };
+const TBL = { tasks: 'kode', daily: 'id', progress: 'w', manpower: 'id', dokumen: 'id' };
 const canon = v => Array.isArray(v) ? '[' + v.map(canon).join(',') + ']'
   : v && typeof v === 'object' ? '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + canon(v[k])).join(',') + '}' : JSON.stringify(v ?? null);
 const recHash = r => { const { _u, _by, ...rest } = r; return canon(rest); };
@@ -233,7 +234,7 @@ let oldGas = false; // Code.gs di Google belum versi terbaru (kolom prioritas be
 function applyRemote(res, force) {
   const S = D.sync;
   let n = 0;
-  if (!('progress' in res)) oldGas = true; // server belum punya tabel Progress
+  if (Object.keys(TBL).some(t => !(t in res))) oldGas = true; // server belum punya tabel baru (Progress/Manpower/Dokumen)
   for (const [t, key] of Object.entries(TBL)) for (const r of res[t] || []) {
     const id = t + ':' + r[key], del = r._del === true || r._del === 'TRUE';
     delete r._del; delete r._rev;
@@ -242,7 +243,7 @@ function applyRemote(res, force) {
     if (t === 'tasks' && !del && !('prio' in r)) { PRIO_T.forEach(f => { r[f] = i >= 0 ? arr[i][f] : ''; }); oldGas = true; }
     if (del) { if (i >= 0) { arr.splice(i, 1); n++; } delete S.h[id]; }
     else {
-      const rec = ({ tasks: normTask, daily: normDaily, progress: normProg })[t](r), h = recHash(rec);
+      const rec = ({ tasks: normTask, daily: normDaily, progress: normProg, manpower: normMp, dokumen: normDok })[t](r), h = recHash(rec);
       if (S.h[id] !== h) n++;
       if (i >= 0) arr[i] = rec; else arr.push(rec);
       S.h[id] = h;
@@ -337,7 +338,7 @@ function render() {
     $('#view').innerHTML = vSetup(); renderSync(); return;
   }
   renderHeader();
-  $('#view').innerHTML = { dash: vDash, jadwal: vJadwal, komit: vKomit, ready: vReady, harian: vHarian, issue: vIssue }[UI.view]();
+  $('#view').innerHTML = { dash: vDash, jadwal: vJadwal, komit: vKomit, ready: vReady, harian: vHarian, issue: vIssue, sd: vSD }[UI.view]();
   if (UI.focus) {
     const el = document.getElementById(UI.focus);
     if (el) { el.classList.add('hl'); el.scrollIntoView({ block: 'center' }); }
@@ -371,6 +372,8 @@ function vDash() {
     <div class="kpi ${!A ? '' : A.aktual >= (planA?.cum ?? 0) ? 'ok' : 'bad'}"><b>${A ? pc(A.aktual) : '–'}</b><span>${A ? `Actual s/d W${A.w} · rencana ${pc(planA?.cum)} · deviasi ${dev(A.aktual - (planA?.cum ?? 0))}` : 'Actual progress belum diisi'}</span></div>
     <div class="kpi ${pd.ppc == null ? '' : pd.ppc >= tgt ? 'ok' : 'bad'}"><b>${pct(pd.ppc)}</b><span>PPC hari ini · ${pd.ya}/${pd.n} janji</span></div>
     <div class="kpi ${fu.some(t => t.prio === 'Urgent') ? 'bad' : fu.length ? 'warn' : ''}"><b>${fu.length}</b><span>Perlu follow up (urgent / tinggi / koordinasi)</span></div>
+    ${D.mpPlan.length ? (() => { const W = mpWeek(cw), a = mpHari(tgl()), ada = D.mpPlan.some(i => mpAkt(tgl(), i.id) != null); return `<div class="kpi ${!ada ? '' : a >= W.plan ? 'ok' : 'bad'}"><b>${ada ? a : '–'}<small class="muted" style="font-size:13px"> / ${W.plan}</small></b><span>Manpower hari ini / rencana W${cw}</span></div>`; })() : ''}
+    ${D.dokumen.length ? `<div class="kpi ${D.dokumen.some(lewatDok) ? 'bad' : 'warn'}"><b>${D.dokumen.filter(x => x.status !== 'Approved').length}</b><span>Dokumen belum approve · ${D.dokumen.filter(lewatDok).length} lewat target</span></div>` : ''}
   </div>
 
   ${fu.length ? `<div class="card">
@@ -574,6 +577,7 @@ function vReady() {
         <div class="chips">${prioChips(t)}${stChip(stK(t))}${stChip(sp)}</div></div>
       <div class="meta"><span>W${t.minggu} · ${esc(t.disiplin)}</span><span>${esc(t.area)}${t.lokasi ? ' · ' + esc(t.lokasi) : ''}</span><span>PIC ${esc(t.pic || '–')}</span><span>${fmt(t.mulai)} → ${fmt(t.selesai)}</span>${prioSel(t)}</div>
       ${fuNote(t)}
+      ${dokLine(t)}
       <div style="display:flex;align-items:center;gap:8px;margin:8px 0"><div class="bar-h" style="flex:1"><i style="width:${Math.min(p || 0, 100)}%"></i></div><small class="muted">Progress ${p == null ? '0' : p}% (dari Daily Log)</small>${stK(t) === 'READY' && sp !== 'FINISH' ? `<button class="btn sm" data-act="daily-new" data-kode="${esc(t.kode)}">+ Janji harian</button>` : ''}</div>
       ${KK.map(k => {
         const c = t.k[k], pend = c.st === 'Pending', f = `task|${esc(t.kode)}|k.${k}.`;
@@ -782,6 +786,198 @@ function exportCSV(what) {
 }
 
 /* ---------- PDF per PIC (cetak browser → "Simpan sebagai PDF"; tanpa library, jalan offline) ---------- */
+/* ---------- SUMBER DAYA: Manpower (MP-Master + aktual harian) & Dokumen (dokument tracking) ---------- */
+const GRUP_MP = ['STAF', 'CSA', 'MEP'];
+const DOK_ST = ['Draft', 'Submitted', 'Approved', 'Revisi', 'Rejected'];
+const dokChip = s => `<span class="chip ${({ Approved: 'ok', Submitted: 'info', Revisi: 'warn', Rejected: 'bad' })[s] || ''}">${esc(s)}</span>`;
+function normMp(x) { x.aktual = nOr(x.aktual); x.catatan = x.catatan ?? ''; return x; }
+function normDok(x) {
+  ['scope', 'nama', 'nomor', 'issue', 'pic', 'kode', 'link', 'riwayat'].forEach(f => { x[f] = x[f] ?? ''; });
+  x.status = DOK_ST.includes(x.status) ? x.status : 'Draft'; x.rev = +x.rev || 0;
+  ['target', 'tglSubmit', 'tglApprove'].forEach(f => { x[f] = x[f] || null; });
+  return x;
+}
+const mpId = (d, item) => `m${d}_${item}`; // 1 record per aktivitas per tanggal (konflik antar HP: yang terakhir menang)
+const mpAkt = (d, item) => D.manpower.find(x => x.id === mpId(d, item))?.aktual ?? null;
+const mpPlanW = (it, w) => +(it.plan?.[w] || 0);
+const mpHari = d => D.mpPlan.reduce((s, it) => s + (mpAkt(d, it.id) || 0), 0);
+/* rencana mingguan (MP-Master) vs aktual = rata-rata harian dari hari yang ada input */
+function mpWeek(w) {
+  const rows = D.manpower.filter(x => x.aktual != null && weekOf(x.tgl) === +w), days = [...new Set(rows.map(x => x.tgl))];
+  const g = Object.fromEntries(GRUP_MP.map(k => {
+    const its = D.mpPlan.filter(i => i.grup === k), ids = new Set(its.map(i => i.id));
+    return [k, { plan: its.reduce((s, i) => s + mpPlanW(i, w), 0), akt: days.length ? Math.round(rows.filter(x => ids.has(x.item)).reduce((s, x) => s + x.aktual, 0) / days.length) : null }];
+  }));
+  return { g, hari: days.length, plan: GRUP_MP.reduce((s, k) => s + g[k].plan, 0), akt: days.length ? Math.round(rows.reduce((s, x) => s + x.aktual, 0) / days.length) : null };
+}
+const lewatDok = x => x.status !== 'Approved' && x.target && x.target < tgl();
+const dokOfTask = kode => D.dokumen.filter(x => String(x.kode).split(',').map(s => s.trim()).includes(kode));
+
+function vSD() {
+  return `<div class="vh"><h2>Sumber daya</h2></div>
+  <div class="prio-f">${[['mp', 'Manpower'], ['dok', 'Dokumen']].map(([k, l]) => `<button type="button" data-act="sd-tab" data-v="${k}" class="${UI.sd === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+  ${UI.sd === 'dok' ? vDok() : vMp()}`;
+}
+
+function vMp() {
+  if (!D.mpPlan.length) return '<div class="empty">Rencana manpower belum ada. Taruh <b>Man Power Tracking.xlsx</b> di folder yang sama dengan Excel LPS, lalu jalankan export_excel.py.</div>';
+  const d = UI.mpTgl || tgl(), w = weekOf(d), W = mpWeek(w), tot = mpHari(d), ada = D.mpPlan.some(it => mpAkt(d, it.id) != null);
+  const items = D.mpPlan.filter(it => UI.mpAll || mpPlanW(it, w) > 0 || mpAkt(d, it.id) != null);
+  const gHari = g => D.mpPlan.filter(i => i.grup === g).reduce((s, i) => s + (mpAkt(d, i.id) || 0), 0);
+  let list = '', lastG = '', lastS = null;
+  for (const it of items) {
+    if (it.grup !== lastG) { list += `<h3 class="mp-g">${esc(it.grup)}<small class="muted">rencana ${W.g[it.grup]?.plan ?? 0} · hari ini ${gHari(it.grup)}</small></h3>`; lastG = it.grup; lastS = null; }
+    if (it.sub !== lastS) { if (it.sub) list += `<div class="mp-s">${esc(it.sub)}</div>`; lastS = it.sub; }
+    const p = mpPlanW(it, w), a = mpAkt(d, it.id), st = a == null ? '' : a < p ? 'bad' : a > p ? 'info' : 'ok';
+    list += `<div class="mp-row"><div class="mp-n"><b>${esc(it.nama)}</b><small class="muted">rencana ${p} org</small></div>
+      <input type="number" min="0" max="999" step="1" inputmode="numeric" value="${a ?? ''}" data-mp="${esc(it.id)}" aria-label="Aktual ${esc(it.nama)}">
+      <span class="chip ${st}">${a == null ? '–' : (a - p > 0 ? '+' : '') + (a - p)}</span></div>`;
+  }
+  const weeks = D.meta.weeks.filter(x => x.w <= weekOf(tgl()) + 1 && x.w >= weekOf(tgl()) - 5);
+  return `
+  <div class="bar">
+    <button class="btn sm" data-act="mp-day" data-n="-1" aria-label="Hari sebelumnya">‹</button>
+    <input type="date" value="${d}" data-ui="mpTgl">
+    <button class="btn sm" data-act="mp-day" data-n="1" aria-label="Hari berikutnya">›</button>
+    <span class="muted">W${w}</span>
+  </div>
+  <div class="grid kpis">
+    <div class="kpi"><b>${W.plan}</b><span>Rencana MP W${w} (MP-Master)</span></div>
+    <div class="kpi ${!ada ? 'warn' : tot >= W.plan ? 'ok' : 'bad'}"><b>${ada ? tot : '–'}</b><span>Aktual hari ini${ada ? ' · ' + pct(W.plan ? tot / W.plan : null) + ' rencana' : ' · belum diisi'}</span></div>
+    ${GRUP_MP.map(g => `<div class="kpi"><b>${ada ? gHari(g) : '–'}<small class="muted" style="font-size:13px"> / ${W.g[g].plan}</small></b><span>${g} aktual / rencana</span></div>`).join('')}
+  </div>
+  <div class="bar"><button class="btn" data-act="mp-copy">Salin aktual hari sebelumnya</button>
+    <label class="muted" style="font-size:13px"><input type="checkbox" data-act="mp-all" ${UI.mpAll ? 'checked' : ''} style="width:auto;min-height:0"> tampilkan semua aktivitas</label></div>
+  <div class="card mp-list">${list || '<p class="muted">Tidak ada aktivitas berencana minggu ini.</p>'}</div>
+  <div class="two">
+    <div class="card"><h3>Manpower loading – rencana vs aktual</h3>${mpChart()}</div>
+    <div class="card"><h3>Rekap mingguan (rata-rata harian)</h3>
+      <div class="scroll"><table class="tbl"><tr><th>Minggu</th>${GRUP_MP.map(g => `<th class="n">${g}</th>`).join('')}<th class="n">Total</th><th class="n">%</th></tr>
+      ${weeks.map(x => { const r = mpWeek(x.w); return `<tr${x.w === weekOf(tgl()) ? ' style="background:var(--warn-bg)"' : ''}><td>W${x.w}<br><small class="muted">${esc(x.label)}</small></td>${GRUP_MP.map(g => `<td class="n">${r.g[g].akt ?? '–'}<small class="muted"> / ${r.g[g].plan}</small></td>`).join('')}<td class="n"><b>${r.akt ?? '–'}</b><small class="muted"> / ${r.plan}</small></td><td class="n">${pct(r.akt != null && r.plan ? r.akt / r.plan : null)}</td></tr>`; }).reverse().join('')}
+      </table></div>
+      <p class="muted" style="font-size:12px">Aktual mingguan = rata-rata jumlah orang per hari dari hari yang ada input.</p></div>
+  </div>`;
+}
+function mpChart() {
+  const ws = D.meta.weeks, W = 640, H = 220, L = 34, R = 10, T = 12, B = 26, n = ws.length;
+  const data = ws.map(x => ({ w: x.w, plan: mpWeek(x.w).plan, akt: mpWeek(x.w).akt }));
+  const max = Math.max(...data.map(x => Math.max(x.plan, x.akt || 0)), 10), bw = (W - L - R) / n;
+  const y = v => T + (H - T - B) * (1 - v / max), cw = weekOf(tgl());
+  let g = '';
+  for (const v of [0, .25, .5, .75, 1]) g += `<line x1="${L}" x2="${W - R}" y1="${y(max * v)}" y2="${y(max * v)}" stroke="var(--grid)"/><text x="${L - 5}" y="${y(max * v) + 4}" text-anchor="end">${Math.round(max * v)}</text>`;
+  data.forEach((x, i) => {
+    const cx = L + bw * i + bw / 2;
+    g += `<rect x="${cx - bw * .35}" y="${y(x.plan)}" width="${bw * .7}" height="${H - B - y(x.plan)}" fill="var(--plan)" opacity="${x.w === cw ? .9 : .45}"><title>W${x.w}: rencana ${x.plan}</title></rect>`;
+    if (x.akt != null) g += `<circle cx="${cx}" cy="${y(x.akt)}" r="4" fill="var(--ok)" stroke="var(--surface)" stroke-width="1.5"><title>W${x.w}: aktual rata-rata ${x.akt}</title></circle>`;
+    if (i % 3 === 0) g += `<text x="${cx}" y="${H - 8}" text-anchor="middle">W${x.w}</text>`;
+  });
+  const act = data.map((x, i) => x.akt == null ? null : `${L + bw * i + bw / 2},${y(x.akt)}`).filter(Boolean);
+  if (act.length > 1) g += `<polyline points="${act.join(' ')}" stroke="var(--ok)" stroke-width="2"/>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Manpower loading">${g}</svg>
+    <div class="legend"><span><i style="background:var(--plan);opacity:.6"></i>Rencana (MP-Master)</span><span><i style="background:var(--ok)"></i>Aktual rata-rata</span></div>`;
+}
+
+function vDok() {
+  const f = UI.dokF, sc = UI.dokScope, all = D.dokumen;
+  const L = all.filter(x => (!sc || x.scope === sc) && (!f || (f === 'open' ? x.status !== 'Approved' : f === 'lewat' ? lewatDok(x) : x.status === f)))
+    .sort((a, b) => (lewatDok(b) - lewatDok(a)) || ((a.status === 'Approved') - (b.status === 'Approved')) || String(a.target || '9999').localeCompare(String(b.target || '9999')));
+  const n = s => all.filter(x => x.status === s).length, lw = all.filter(lewatDok).length;
+  const FD = { '': 'Semua', open: 'Belum approve', lewat: 'Lewat target', Draft: 'Draft', Submitted: 'Submitted', Revisi: 'Revisi', Rejected: 'Rejected', Approved: 'Approved' };
+  return `
+  <div class="grid kpis">
+    <div class="kpi"><b>${all.length}</b><span>Total dokumen</span></div>
+    <div class="kpi ok"><b>${n('Approved')}</b><span>Approved</span></div>
+    <div class="kpi info"><b>${n('Submitted')}</b><span>Menunggu review</span></div>
+    <div class="kpi warn"><b>${n('Revisi') + n('Rejected')}</b><span>Revisi / Rejected</span></div>
+    <div class="kpi ${lw ? 'bad' : ''}"><b>${lw}</b><span>Lewat target approve</span></div>
+  </div>
+  <div class="prio-f">${Object.entries(FD).map(([k, l]) => `<button type="button" data-act="dok-f" data-v="${k}" class="${f === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+  <div class="bar"><select data-ui="dokScope" style="width:auto">${opt('', sc, 'Semua scope')}${D.disiplin.map(d => opt(d, sc)).join('')}</select></div>
+  ${L.map(x => {
+    const sisa = x.target ? days(tgl(), x.target) : null, tasks = String(x.kode).split(',').map(s => s.trim()).filter(Boolean);
+    const next = { Draft: [['Submitted', 'Submit']], Submitted: [['Approved', 'Approve'], ['Revisi', 'Revisi'], ['Rejected', 'Reject']], Revisi: [['Submitted', `Submit ulang (Rev ${x.rev + 1})`]], Rejected: [['Submitted', `Submit ulang (Rev ${x.rev + 1})`]] }[x.status] || [];
+    return `<div class="item" id="d-${esc(x.id)}">
+      <div class="hd"><div><span class="code">${esc(x.nomor || '(tanpa nomor)')} · Rev ${x.rev}</span> <span class="ttl">${esc(x.nama)}</span>
+        <div class="sub">${esc([x.scope, x.pic && 'PIC ' + x.pic].filter(Boolean).join(' · '))}</div></div>
+        <div class="chips">${dokChip(x.status)}${lewatDok(x) ? `<span class="chip bad">lewat ${-sisa} hari</span>` : x.status !== 'Approved' && sisa != null ? `<span class="chip">sisa ${sisa} hari</span>` : ''}</div></div>
+      <div class="meta"><span>Target approve <b>${fmt(x.target)}</b></span><span>Submit ${fmt(x.tglSubmit)}</span>${x.tglApprove ? `<span>Approved ${fmt(x.tglApprove)}</span>` : ''}
+        ${tasks.map(k => `<a href="#ready" data-act="goto-ready" data-kode="${esc(k)}" class="chip info" style="text-decoration:none">${esc(k)}</a>`).join('')}</div>
+      ${x.issue && (x.status === 'Revisi' || x.status === 'Rejected') ? `<div class="fu">↳ ${esc(x.issue)}</div>` : ''}
+      <div class="bar" style="margin:10px 0 0">${next.map(([v, l]) => `<button class="btn sm ${v === 'Approved' ? 'pri' : v === 'Rejected' ? 'danger' : ''}" data-act="dok-st" data-id="${esc(x.id)}" data-v="${v}">${esc(l)}</button>`).join('')}
+        <span style="flex:1"></span>${x.link ? `<a class="btn sm" href="${esc(x.link)}" target="_blank" rel="noopener">Buka file</a>` : ''}<button class="btn sm" data-act="dok-edit" data-id="${esc(x.id)}">Ubah</button></div>
+      ${x.riwayat ? `<details style="margin-top:6px"><summary class="muted" style="font-size:13px">Riwayat</summary><pre class="riwayat">${esc(x.riwayat)}</pre></details>` : ''}
+    </div>`;
+  }).join('') || '<div class="empty">Belum ada dokumen untuk filter ini. Tekan <b>+ Dokumen</b>.</div>'}
+  <button class="btn pri fab" data-act="dok-new">+ Dokumen</button>`;
+}
+function dokForm(x, isNew) {
+  const kode = String(x.kode).split(',').map(s => s.trim());
+  return `<h3>${isNew ? 'Dokumen baru' : 'Ubah dokumen'}</h3>
+  <label class="f">Nama dokumen<input type="text" name="nama" value="${esc(x.nama)}" required placeholder="mis. Shop drawing overlay lantai GD 4"></label>
+  <div class="frow">
+    <label class="f">Nomor dokumen<input type="text" name="nomor" value="${esc(x.nomor)}"></label>
+    <label class="f">Revisi<input type="number" name="rev" min="0" step="1" value="${x.rev}"></label>
+  </div>
+  <div class="frow">
+    <label class="f">Scope<select name="scope">${D.disiplin.map(d => opt(d, x.scope)).join('')}</select></label>
+    <label class="f">Status<select name="status">${DOK_ST.map(s => opt(s, x.status)).join('')}</select></label>
+  </div>
+  <div class="frow">
+    <label class="f">Target approved<input type="date" name="target" value="${esc(x.target || '')}"></label>
+    <label class="f">Tanggal submit<input type="date" name="tglSubmit" value="${esc(x.tglSubmit || '')}"></label>
+  </div>
+  <div class="frow">
+    <label class="f">PIC<input type="text" name="pic" value="${esc(x.pic)}"></label>
+    <label class="f">Link file (Google Drive)<input type="text" name="link" inputmode="url" value="${esc(x.link)}" placeholder="https://drive.google.com/…"></label>
+  </div>
+  <label class="f">Issue (jika revisi / reject)<textarea name="issue">${esc(x.issue)}</textarea></label>
+  <div class="f">Task LPS terkait (dokumen ini syarat Engineering task tsb)<div class="ck">${D.tasks.map(t => `<label><input type="checkbox" name="kode" value="${esc(t.kode)}"${kode.includes(t.kode) ? ' checked' : ''}> ${esc(t.kode)} <small class="muted">${esc(t.uraian.slice(0, 28))}</small></label>`).join('') || '<span class="muted">Belum ada task</span>'}</div></div>
+  <div class="dlg-act">${isNew ? '' : `<button type="button" class="btn danger" data-act="dok-del" data-id="${esc(x.id)}">Hapus</button>`}<span class="sp"></span>
+    <button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Simpan</button></div>`;
+}
+const riwayat = (x, s) => { x.riwayat = (x.riwayat ? x.riwayat + '\n' : '') + `${fmt(tgl())} · ${s}${D.sync.user ? ' · ' + D.sync.user : ''}`; };
+function editDok(x, isNew) {
+  openDlg(dokForm(x, isNew), fd => {
+    const v = Object.fromEntries(fd.entries()); v.kode = fd.getAll('kode').join(','); v.rev = +v.rev || 0;
+    ['target', 'tglSubmit'].forEach(k => { v[k] = v[k] || null; });
+    const r = isNew ? normDok({ id: 'doc' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), riwayat: '', tglApprove: null }) : D.dokumen.find(d => d.id === x.id);
+    if (r.status !== v.status) riwayat(r, `${v.status} (Rev ${v.rev})`);
+    if (v.status === 'Approved' && !r.tglApprove) v.tglApprove = tgl();
+    Object.assign(r, v); normDok(r);
+    if (isNew) D.dokumen.push(r);
+    save(); UI.focus = 'd-' + r.id; render(); toast('Dokumen tersimpan');
+  });
+}
+function dokStatus(x, to) {
+  const apply = issue => {
+    if (to === 'Submitted') { if (x.status === 'Revisi' || x.status === 'Rejected') x.rev++; x.tglSubmit = tgl(); x.tglApprove = null; }
+    if (to === 'Approved') x.tglApprove = tgl();
+    if (issue != null) x.issue = issue;
+    x.status = to; riwayat(x, `${to} (Rev ${x.rev})${issue ? ': ' + issue : ''}`);
+    save(); render(); toast(`${x.nomor || x.nama} → ${to}`);
+  };
+  if (to !== 'Revisi' && to !== 'Rejected') return apply(null);
+  openDlg(`<h3>${to === 'Revisi' ? 'Revisi' : 'Reject'} · ${esc(x.nomor || x.nama)}</h3>
+    <label class="f">Issue / komentar reviewer<textarea name="issue" required>${esc(x.issue)}</textarea></label>
+    <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Simpan</button></div>`, fd => apply(fd.get('issue')));
+}
+/* dokumen task belum approve → kendala Engineering task tsb */
+function dokKendala(t) {
+  const open = dokOfTask(t.kode).filter(x => x.status !== 'Approved');
+  if (!open.length) return;
+  const n = open.map(x => x.nama).join(' ').toLowerCase(), E = D.issues.eng || [];
+  const pick = [[/method/, 'Method statement'], [/submittal/, 'Material submittal'], [/rfi/, 'RFI'], [/izin|ptw/, 'Izin kerja'], [/./, 'Shop drawing belum approve']]
+    .map(([re, key]) => re.test(n) && E.find(i => i.startsWith(key))).find(Boolean) || '';
+  t.k.eng = { st: 'Pending', issue: pick, detail: open.map(x => `${x.nomor || x.nama} (${x.status}, Rev ${x.rev})`).join('; '), pic: open[0].pic || t.k.eng.pic,
+    target: open.map(x => x.target).filter(Boolean).sort().at(-1) || t.k.eng.target };
+  save(); render(); toast(`${t.kode}: kendala Engineering → Pending (${open.length} dokumen)`);
+}
+const dokLine = t => {
+  const ds = dokOfTask(t.kode); if (!ds.length) return '';
+  const open = ds.filter(x => x.status !== 'Approved');
+  return `<div class="meta" style="margin-top:6px"><span>Dokumen:</span>${ds.map(x => `<a href="#sd" data-act="goto-dok" data-id="${esc(x.id)}" class="chip ${x.status === 'Approved' ? 'ok' : lewatDok(x) ? 'bad' : 'warn'}" style="text-decoration:none">${esc(x.nomor || x.nama)} · ${esc(x.status)}</a>`).join('')}
+    ${open.length && t.k.eng.st !== 'Pending' ? `<button class="btn sm" data-act="dok-kendala" data-kode="${esc(t.kode)}">⚠ ${open.length} belum approve → jadikan kendala Engineering</button>` : ''}</div>`;
+};
 const vh = (title, r) => `<div class="vh"><h2>${esc(title)}</h2><button class="btn sm" data-act="pdf" data-r="${r}">PDF per PIC</button></div>`;
 const picOf = s => String(s || '').trim() || '(tanpa PIC)';
 const prioTxt = t => [t.prio ? t.prio.toUpperCase() : '', koordList(t).length ? '↔ ' + koordList(t).join(', ') : '', t.followup].filter(Boolean).join('\n');
@@ -947,6 +1143,26 @@ document.addEventListener('click', e => {
       });
       break;
     case 'aktual': openDlg(aktualForm(), simpanAktual); break;
+    case 'sd-tab': UI.sd = el.dataset.v; render(); break;
+    case 'mp-day': UI.mpTgl = addDays(UI.mpTgl || tgl(), +el.dataset.n); render(); break;
+    case 'mp-all': UI.mpAll = el.checked; render(); break;
+    case 'mp-copy': {
+      const d = UI.mpTgl || tgl(), prev = [...new Set(D.manpower.filter(x => x.tgl < d && x.aktual != null).map(x => x.tgl))].sort().at(-1);
+      if (!prev) { toast('Belum ada data hari sebelumnya'); break; }
+      let n = 0;
+      D.manpower.filter(x => x.tgl === prev && x.aktual != null).forEach(x => { if (mpAkt(d, x.item) == null) { D.manpower.push({ id: mpId(d, x.item), tgl: d, item: x.item, aktual: x.aktual, catatan: '' }); n++; } });
+      save(); render(); toast(`${n} aktivitas disalin dari ${fmt(prev)} – sesuaikan bila berubah`);
+      break;
+    }
+    case 'dok-f': UI.dokF = el.dataset.v; render(); break;
+    case 'dok-new': editDok(normDok({ scope: D.disiplin[0], status: 'Draft', rev: 0 }), true); break;
+    case 'dok-edit': editDok({ ...D.dokumen.find(x => x.id === el.dataset.id) }, false); break;
+    case 'dok-del':
+      if (confirm('Hapus dokumen ini?')) { D.dokumen = D.dokumen.filter(x => x.id !== el.dataset.id); save(); $('#dlg').close(); render(); }
+      break;
+    case 'dok-st': dokStatus(D.dokumen.find(x => x.id === el.dataset.id), el.dataset.v); break;
+    case 'dok-kendala': dokKendala(task); break;
+    case 'goto-dok': UI.sd = 'dok'; UI.dokF = ''; UI.focus = 'd-' + el.dataset.id; if (UI.view === 'sd') render(); break;
     case 'fprio': UI.fPrio = el.dataset.v; if (el.tagName === 'A') break; render(); break; // <a> → hashchange render
     case 'pdf': {
       const r = el.dataset.r;
@@ -1032,6 +1248,13 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => {
   const el = e.target;
   if (el.dataset.ui) { UI[el.dataset.ui] = el.value; render(); return; }
+  if (el.dataset.mp) { // aktual manpower per aktivitas per tanggal; kosong = hapus
+    const d = UI.mpTgl || tgl(), id = mpId(d, el.dataset.mp), v = el.value === '' ? null : Math.max(0, Math.round(+el.value));
+    const r = D.manpower.find(x => x.id === id);
+    if (v == null) D.manpower = D.manpower.filter(x => x !== r);
+    else if (r) r.aktual = v; else D.manpower.push({ id, tgl: d, item: el.dataset.mp, aktual: v, catatan: '' });
+    save(); render(); return;
+  }
   if (el.id === 'jr-kode') { $('#jr-info').innerHTML = jrInfo(el.value); return; }
   if (!el.dataset.f) return;
   const [kind, id, path] = el.dataset.f.split('|');
