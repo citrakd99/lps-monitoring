@@ -1117,7 +1117,8 @@ function newDaily(kode, tglJanji) {
     <p class="muted" id="jr-info" style="font-size:13px;margin:-4px 0 10px">${jrInfo(k0)}</p>
     <div class="muted" style="font-size:12px;margin-bottom:4px">Tanggal · bobot (% dari task) · target terukur. Boleh beberapa baris di tanggal yang sama.</div>
     <div id="jr-rows">${janjiRow(d)}</div>
-    <div class="bar" style="margin:4px 0 0"><button type="button" class="btn sm" data-act="jr-add">+ Baris</button><button type="button" class="btn sm" data-act="jr-auto">Bagi rata s/d rencana selesai</button></div>
+    <div class="bar" style="margin:4px 0 0"><button type="button" class="btn sm" data-act="jr-add">+ Baris</button><button type="button" class="btn sm" data-act="jr-auto" data-n="7">7 hari ke depan</button><button type="button" class="btn sm" data-act="jr-auto" data-n="14">Bagi rata s/d rencana selesai</button></div>
+    <label class="muted" style="font-size:13px;display:block;margin-top:6px"><input type="checkbox" id="jr-minggu" style="width:auto;min-height:0"> lewati hari Minggu</label>
     <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Simpan janji</button></div>`,
   fd => {
     const k = fd.get('kode'), tg = fd.getAll('jtgl'), tr = fd.getAll('jtarget'), bb = fd.getAll('jbobot');
@@ -1129,14 +1130,21 @@ function newDaily(kode, tglJanji) {
     toast(`${rows.length} janji ${k} disimpan${tot > sisa + 0.01 ? ` · ⚠ total bobot ${pc(tot)} > sisa ${pc(sisa)}` : ''}`);
   });
 }
-function jrAuto() { // satu baris per hari dari tanggal Harian (atau rencana mulai) s/d rencana selesai, bobot sisa dibagi rata
+/* Satu baris janji per hari kerja dari tanggal janji (atau rencana mulai) s/d rencana selesai, maks `limit` hari.
+   Bobot sisa dibagi rata ke SEMUA hari kerja s/d rencana selesai; yang dibuat hanya `limit` hari pertama
+   (mis. 7 hari ke depan), sisanya direncanakan minggu berikutnya. Tiap janji tampil di Harian pada tanggalnya. */
+function jrAuto(limit) {
   const t = D.tasks.find(x => x.kode === $('#jr-pick input:checked')?.value);
-  const from = [jrTgl || UI.harianTgl || tgl(), t.mulai].filter(Boolean).sort().at(-1), to = t.selesai || from;
-  const n = Math.min(14, Math.max(1, days(from, to) + 1)), sisa = sisaRencana(t.kode);
+  const from = [jrTgl || UI.harianTgl || tgl(), t.mulai].filter(Boolean).sort().at(-1);
+  const to = t.selesai && t.selesai >= from ? t.selesai : addDays(from, limit - 1), libur = $('#jr-minggu')?.checked;
+  const hari = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) if (!(libur && new Date(d + 'T00:00:00').getDay() === 0)) hari.push(d);
+  const sisa = sisaRencana(t.kode);
   if (!sisa) { toast('Bobot task sudah habis direncanakan'); return; }
-  const b = Math.floor(sisa / n * 10) / 10;
-  $('#jr-rows').innerHTML = Array.from({ length: n }, (_, i) => janjiRow(addDays(from, i), '', i === n - 1 ? r6(sisa - b * (n - 1)) : b)).join('');
-  if (days(from, to) + 1 > 14) toast('Dibatasi 14 hari – tambah sisanya nanti');
+  if (!hari.length) { toast('Tidak ada hari kerja di rentang ini'); return; }
+  const dibuat = hari.slice(0, limit), b = Math.floor(sisa / hari.length * 10) / 10, habis = dibuat.length === hari.length;
+  $('#jr-rows').innerHTML = dibuat.map((d, i) => janjiRow(d, '', habis && i === dibuat.length - 1 ? r6(sisa - b * (hari.length - 1)) : b)).join('');
+  toast(habis ? `${dibuat.length} hari s/d rencana selesai ${fmt(t.selesai)}` : `${dibuat.length} hari dibuat · ${hari.length - dibuat.length} hari lagi s/d ${fmt(to)} direncanakan berikutnya`);
 }
 
 /* ---------- event ---------- */
@@ -1210,7 +1218,7 @@ document.addEventListener('click', e => {
       break;
     }
     case 'jr-del': if (document.querySelectorAll('#jr-rows .jr').length > 1) el.closest('.jr').remove(); break;
-    case 'jr-auto': jrAuto(); break;
+    case 'jr-auto': jrAuto(+el.dataset.n || 14); break;
     case 'daily-del': D.daily = D.daily.filter(r => r.id !== el.dataset.id); save(); render(); break;
     case 'daily-copy': {
       const d = el.dataset.tgl || UI.harianTgl || tgl();
