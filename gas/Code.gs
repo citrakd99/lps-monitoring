@@ -32,6 +32,14 @@ var TABLES = {
     sheet: 'Progress', key: 'w',
     cols: ['w', 'aktual', 'catatan', '_u', '_by', '_del', '_rev']
   },
+  manpower: { // aktual manpower harian per aktivitas MP-Master (id = m<tanggal>_<aktivitas>)
+    sheet: 'Manpower', key: 'id',
+    cols: ['id', 'tgl', 'item', 'aktual', 'catatan', '_u', '_by', '_del', '_rev']
+  },
+  dokumen: { // dokument tracking
+    sheet: 'Dokumen', key: 'id',
+    cols: ['id', 'scope', 'nama', 'nomor', 'rev', 'status', 'target', 'tglSubmit', 'tglApprove', 'issue', 'pic', 'kode', 'link', 'riwayat', '_u', '_by', '_del', '_rev']
+  },
   daily: {
     sheet: 'DailyLog', key: 'id',
     // tercapai & progress = kolom model lama (kosong); bobot & capaian (%) ditambah di akhir agar baris lama tetap sejajar

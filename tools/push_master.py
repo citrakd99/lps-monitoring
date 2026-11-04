@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 DAILY_F = ["tgl", "kode", "target", "bobot", "capaian", "penyebab", "catatan"]
-MASTER_F = ["meta", "pekerjaan", "areas", "areaMap", "issues", "penyebab", "disiplin", "source", "exportedAt"]
+MASTER_F = ["mpPlan", "meta", "pekerjaan", "areas", "areaMap", "issues", "penyebab", "disiplin", "source", "exportedAt"]
 
 
 def post(url, body):
@@ -59,12 +59,14 @@ def main():
     team = post(url, {"key": key, "user": nama, "since": 0, "masterVer": "-"})
     now = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     body = {"key": key, "user": nama, "since": team["rev"], "master": {f: seed[f] for f in MASTER_F if f in seed}}
+    known_dok = {str(r["id"]) for r in team.get("dokumen", [])}
+    body["dokumen"] = [{**r, "_u": now, "_by": nama} for r in seed.get("dokumen", []) if str(r["id"]) not in known_dok]
     known = {str(r["kode"]) for r in team.get("tasks", [])}
     body["tasks"] = [{**r, "_u": now, "_by": nama} for r in seed.get("tasks", []) if str(r["kode"]) not in known]
 
     sheet = {str(r["id"]): r for r in team.get("daily", [])}
     if (sheet and not any("bobot" in r for r in sheet.values())) or \
-            (team.get("tasks") and not any("prio" in r for r in team["tasks"])) or "progress" not in team:
+            (team.get("tasks") and not any("prio" in r for r in team["tasks"])) or "progress" not in team or "dokumen" not in team:
         sys.exit("Code.gs di Google masih versi lama (belum ada kolom bobot/capaian/prioritas/tabel Progress). Tempel Code.gs terbaru, "
                  "jalankan setup(), lalu Deploy > Manage deployments > Edit > Version: New version.")
     def same(a, b):

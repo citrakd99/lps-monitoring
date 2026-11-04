@@ -6,6 +6,7 @@ Pemakaian:
 Peta kolom lengkap ada di ../PETA-EXCEL-KE-APLIKASI.md
 """
 import json
+import re
 import sys
 import warnings
 from datetime import date, datetime
@@ -173,10 +174,65 @@ def export(xlsx, out):
         "disiplin": ["CSA", "MEP", "ARS", "PRELIM"], "areas": areas, "areaMap": area_map,
         "issues": issues, "penyebab": penyebab,
         "pekerjaan": pekerjaan, "tasks": list(tasks.values()), "daily": daily, "progress": progress,
+        # file pendamping (opsional) di folder yang sama dengan Excel LPS
+        "mpPlan": export_mp(Path(xlsx).with_name("Man Power Tracking.xlsx")),
+        "dokumen": export_dok(Path(xlsx).with_name("dokument tracking.xlsx")),
     }
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     Path(out).write_text(json.dumps(seed, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"OK → {out}: {len(weeks)} minggu, {len(pekerjaan)} pekerjaan, {len(tasks)} task, {len(daily)} daily log")
+    print(f"OK → {out}: {len(weeks)} minggu, {len(pekerjaan)} pekerjaan, {len(tasks)} task, {len(daily)} daily log, "
+          f"{len(seed['mpPlan'])} aktivitas manpower, {len(seed['dokumen'])} dokumen")
+
+
+def export_mp(path):
+    # Man Power Tracking.xlsx > MP-Master: aktivitas per grup (STAF / CSA / MEP) + rencana orang per minggu W0...
+    if not path.exists():
+        return []
+    ws = openpyxl.load_workbook(path, data_only=True)["MP-Master"]
+    wcol = {c: int(str(ws.cell(3, c).value)[1:]) for c in range(5, ws.max_column + 1)
+            if re.fullmatch(r"W\d+", str(ws.cell(3, c).value or ""))}
+    grup, sub, out = "", "", []
+    for r in range(4, ws.max_row + 1):
+        a, b = ws.cell(r, 1).value, txt(ws.cell(r, 2).value)
+        if b.upper() in ("STAF", "TOTAL") and r > 5:  # blok rekap total di bawah
+            break
+        plan = {str(w): int(num(ws.cell(r, c).value)) for c, w in wcol.items() if num(ws.cell(r, c).value) > 0}
+        sa = txt(a)
+        if not b:
+            continue
+        if a is None and not plan:                        # judul grup tanpa kode, mis. "Site Management"
+            grup, sub = ("STAF" if "manag" in b.lower() else b.upper()), ""
+        elif re.fullmatch(r"[A-Z]", sa):                  # A = CSA, B = MEP
+            grup, sub = b.upper(), ""
+        elif re.fullmatch(r"[A-Z]\.\d+", sa):             # A.1 GD 4 …; baris sub yang berisi rencana dihitung juga sbg aktivitas
+            sub = b
+            if plan:
+                out.append({"id": re.sub(r"[^a-z0-9]+", "-", f"{grup} {b}".lower()).strip("-"), "grup": grup, "sub": "",
+                            "nama": b, "durasi": int(num(ws.cell(r, 3).value)), "mp": int(num(ws.cell(r, 4).value)), "plan": plan})
+        elif isinstance(a, (int, float)):
+            out.append({"id": re.sub(r"[^a-z0-9]+", "-", f"{grup} {sub} {b}".lower()).strip("-"), "grup": grup, "sub": sub,
+                        "nama": b, "durasi": int(num(ws.cell(r, 3).value)), "mp": int(num(ws.cell(r, 4).value)), "plan": plan})
+    return out
+
+
+def export_dok(path):
+    # dokument tracking.xlsx: No, Scope, Nama, Nomor, Status, Target Approved, Tanggal Submit, Issue (judul baris 3)
+    if not path.exists():
+        return []
+    ws = openpyxl.load_workbook(path, data_only=True).worksheets[0]
+    st = {"draft": "Draft", "submit": "Submitted", "submited": "Submitted", "submitted": "Submitted", "approve": "Approved",
+          "approved": "Approved", "revisi": "Revisi", "reject": "Rejected", "riject": "Rejected", "rejected": "Rejected"}
+    out = []
+    for r in range(4, ws.max_row + 1):
+        nama, nomor = txt(ws.cell(r, 3).value), txt(ws.cell(r, 4).value)
+        if not nama and not nomor:
+            continue
+        out.append({"id": "x" + re.sub(r"[^A-Za-z0-9]+", "-", nomor or f"no{txt(ws.cell(r, 1).value) or r}"),
+                    "scope": txt(ws.cell(r, 2).value).upper(), "nama": nama, "nomor": nomor, "rev": 0,
+                    "status": st.get(txt(ws.cell(r, 5).value).lower(), "Draft"),
+                    "target": iso(ws.cell(r, 6).value), "tglSubmit": iso(ws.cell(r, 7).value), "tglApprove": None,
+                    "issue": txt(ws.cell(r, 8).value), "pic": "", "kode": "", "link": "", "riwayat": ""})
+    return out
 
 
 if __name__ == "__main__":
