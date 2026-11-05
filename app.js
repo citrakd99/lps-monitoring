@@ -16,7 +16,7 @@ const opt = (v, cur, label) => `<option value="${esc(v)}"${String(v) === String(
 const pct = (x, d = 0) => x == null || isNaN(x) ? '–' : (x * 100).toFixed(d) + '%';
 
 let D = null;
-const UI = { view: 'dash', week: '', jSearch: '', jDis: '', jLook: '2', jFrom: null, harianTgl: null, focus: null, fPrio: '', sd: 'mp', mpTgl: null, mpAll: false, dokF: 'open', dokScope: '', dokJenis: '', dokQ: '' };
+const UI = { view: 'dash', week: '', jSearch: '', jDis: '', jLook: '2', jFrom: null, harianTgl: null, focus: null, fPrio: '', sd: 'mp', mpTgl: null, mpAll: false, dokF: 'open', dokScope: '', dokJenis: '', dokSub: '', dokQ: '', dokTutup: [] };
 
 /* ---------- tanggal ---------- */
 const todayISO = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
@@ -985,13 +985,20 @@ function mpChart() {
 
 function vDok() {
   drvAuto();
-  const f = UI.dokF, sc = UI.dokScope, jn = UI.dokJenis, q = UI.dokQ.toLowerCase().trim(), all = allDok();
-  const jenisL = [...new Set(all.map(x => x.jenis || 'Manual'))];
-  const scopeL = [...new Set([...D.disiplin, ...all.map(x => x.scope).filter(Boolean)])];
-  const L = all.filter(x => (!sc || x.scope === sc) && (!jn || (x.jenis || 'Manual') === jn)
-      && (!q || [x.nomor, x.nama, x.pic, x.sub, x.issue].join(' ').toLowerCase().includes(q))
-      && (!f || (f === 'open' ? x.status !== 'Approved' : f === 'lewat' ? lewatDok(x) : x.status === f)))
-    .sort((a, b) => (lewatDok(b) - lewatDok(a)) || ((a.status === 'Approved') - (b.status === 'Approved')) || String(a.target || '9999').localeCompare(String(b.target || '9999')));
+  const f = UI.dokF, sc = UI.dokScope, jn = UI.dokJenis, sb = UI.dokSub, q = UI.dokQ.toLowerCase().trim(), all0 = allDok();
+  const kat = x => x.jenis || 'Manual';
+  const urut = new Map(); all0.forEach(x => { if (!urut.has(kat(x))) urut.set(kat(x), urut.size); if (x.sub && !urut.has(kat(x) + '|' + x.sub)) urut.set(kat(x) + '|' + x.sub, urut.size); });
+  const scopeL = [...new Set([...D.disiplin, ...all0.map(x => x.scope).filter(Boolean)])];
+  // filter selain kategori → dipakai untuk angka di chip kategori
+  const base = all0.filter(x => (!sc || x.scope === sc) && (!q || [x.nomor, x.nama, x.pic, x.sub, x.issue].join(' ').toLowerCase().includes(q))
+      && (!f || (f === 'open' ? x.status !== 'Approved' : f === 'lewat' ? lewatDok(x) : x.status === f)));
+  const all = jn ? all0.filter(x => kat(x) === jn) : all0; // KPI mengikuti kategori terpilih
+  const subL = jn ? [...new Set(all.map(x => x.sub).filter(Boolean))] : [];
+  const L = base.filter(x => (!jn || kat(x) === jn) && (!sb || x.sub === sb))
+    .sort((a, b) => urut.get(kat(a)) - urut.get(kat(b)) || (urut.get(kat(a) + '|' + a.sub) ?? -1) - (urut.get(kat(b) + '|' + b.sub) ?? -1)
+      || (lewatDok(b) - lewatDok(a)) || ((a.status === 'Approved') - (b.status === 'Approved')) || String(a.target || '9999').localeCompare(String(b.target || '9999')));
+  const katL = [...urut.keys()].filter(k => !k.includes('|'));
+  const nKat = k => base.filter(x => kat(x) === k).length;
   const n = s => all.filter(x => x.status === s).length, lw = all.filter(lewatDok).length;
   const tunggu = x => x.status === 'Submitted' && x.tglSubmit && !x.respon ? days(x.tglSubmit, tgl()) : null;
   const FD = { '': 'Semua', open: 'Belum approve', lewat: 'Lewat target', Draft: 'Draft', Submitted: 'Submitted', Revisi: 'Revisi / Not Approved', Rejected: 'Rejected', Approved: 'Approved' };
@@ -1010,21 +1017,35 @@ function vDok() {
     <div class="kpi ${lw ? 'bad' : ''}"><b>${lw}</b><span>Lewat target</span></div>
   </div>
   <div class="prio-f">${Object.entries(FD).map(([k, l]) => `<button type="button" data-act="dok-f" data-v="${k}" class="${f === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-  <div class="bar"><select data-ui="dokJenis" style="width:auto">${opt('', jn, 'Semua jenis')}${jenisL.map(d => opt(d, jn)).join('')}</select>
+  <div class="prio-f kat-f"><button type="button" data-act="dok-kat" data-v="" class="${jn ? '' : 'on'}">Semua kategori <b>${base.length}</b></button>${katL.map(k => `<button type="button" data-act="dok-kat" data-v="${esc(k)}" class="${jn === k ? 'on' : ''}">${esc(k)} <b>${nKat(k)}</b></button>`).join('')}</div>
+  <div class="bar">${subL.length ? `<select data-ui="dokSub" style="width:auto">${opt('', sb, 'Semua sub-kategori')}${subL.map(d => opt(d, sb)).join('')}</select>` : ''}
     <select data-ui="dokScope" style="width:auto">${opt('', sc, 'Semua scope')}${scopeL.map(d => opt(d, sc)).join('')}</select>
     <input type="search" data-ui="dokQ" value="${esc(UI.dokQ)}" placeholder="Cari nomor / nama / PIC" style="flex:1;min-width:160px"></div>
   ${L.length ? `<div class="card dok-t"><table class="tbl">
-    <thead><tr><th>Dokumen</th><th class="w-l">Jenis</th><th class="w-l">PIC</th><th>Status</th><th class="n">Tanggal</th></tr></thead>
-    <tbody>${L.map(x => {
-      const tg = tunggu(x), lw = lewatDok(x);
-      const tanggal = x.respon ? ['Respon', x.respon] : x.tglSubmit ? ['Submit', x.tglSubmit] : [x.drive ? 'Rencana submit' : 'Target', x.target];
-      return `<tr id="d-${esc(x.id)}" data-act="dok-info" data-id="${esc(x.id)}">
-        <td><span class="code">${esc(x.nomor || '(tanpa nomor)')}${x.rev ? ' · Rev ' + x.rev : ''}</span><br>${esc(x.nama)}</td>
-        <td class="w-l">${esc(x.jenis || 'Manual')}</td><td class="w-l">${esc(x.pic || '–')}</td>
-        <td>${dokStChip(x)}${lw ? `<br><span class="chip bad">lewat</span>` : tg != null && tg > 7 ? `<br><span class="chip warn">${tg} hr</span>` : ''}</td>
-        <td class="n"><small class="muted">${tanggal[0]}</small><br>${fmt(tanggal[1])}</td></tr>`;
-    }).join('')}</tbody></table></div>
-    <p class="muted" style="font-size:12px">${L.length} dokumen · ketuk baris untuk detail</p>`
+    <thead><tr><th>Dokumen</th><th class="w-l">PIC</th><th>Status</th><th class="n">Tanggal</th></tr></thead>
+    <tbody>${(() => {
+      let h = '', gK = null, gS = null;
+      for (const x of L) {
+        const k = kat(x), tutup = UI.dokTutup.includes(k);
+        if (k !== gK) {
+          const g = L.filter(d => kat(d) === k), bu = g.filter(d => d.status !== 'Approved').length, lw = g.filter(lewatDok).length;
+          h += `<tr class="dok-grp" data-act="dok-grp" data-v="${esc(k)}"><td colspan="4"><span class="cv">${tutup ? '▸' : '▾'}</span> <b>${esc(k)}</b>
+            <small class="muted">${g.length} dokumen · ${bu} belum approve${lw ? ` · <span style="color:var(--bad)">${lw} lewat</span>` : ''}</small></td></tr>`;
+          gK = k; gS = null;
+        }
+        if (tutup) continue;
+        if (x.sub && x.sub !== gS && !sb) { h += `<tr class="dok-sub"><td colspan="4">${esc(x.sub)}</td></tr>`; gS = x.sub; }
+        const tg = tunggu(x), lw = lewatDok(x);
+        const tanggal = x.respon ? ['Respon', x.respon] : x.tglSubmit ? ['Submit', x.tglSubmit] : [x.drive ? 'Rencana submit' : 'Target', x.target];
+        h += `<tr id="d-${esc(x.id)}" data-act="dok-info" data-id="${esc(x.id)}">
+          <td><span class="code">${esc(x.nomor || '(tanpa nomor)')}${x.rev ? ' · Rev ' + x.rev : ''}</span><br>${esc(x.nama)}</td>
+          <td class="w-l">${esc(x.pic || '–')}</td>
+          <td>${dokStChip(x)}${lw ? `<br><span class="chip bad">lewat</span>` : tg != null && tg > 7 ? `<br><span class="chip warn">${tg} hr</span>` : ''}</td>
+          <td class="n"><small class="muted">${tanggal[0]}</small><br>${fmt(tanggal[1])}</td></tr>`;
+      }
+      return h;
+    })()}</tbody></table></div>
+    <p class="muted" style="font-size:12px">${L.length} dokumen · ketuk judul kategori untuk buka/tutup, ketuk baris untuk detail</p>`
     : `<div class="empty">${drvBusy ? 'Membaca log dokumen dari Drive…' : 'Belum ada dokumen untuk filter ini.'}</div>`}
   <button class="btn pri fab" data-act="dok-new">+ Dokumen</button>`;
 }
@@ -1372,6 +1393,8 @@ document.addEventListener('click', e => {
     }
     case 'dok-f': UI.dokF = el.dataset.v; render(); break;
     case 'drv-load': drvLoad(true); break;
+    case 'dok-kat': UI.dokJenis = el.dataset.v; UI.dokSub = ''; UI.dokTutup = []; render(); break;
+    case 'dok-grp': { const k = el.dataset.v; UI.dokTutup = UI.dokTutup.includes(k) ? UI.dokTutup.filter(x => x !== k) : [...UI.dokTutup, k]; render(); break; }
     case 'drv-set': drvSet(); break;
     case 'dok-new': editDok(normDok({ scope: D.disiplin[0], status: 'Draft', rev: 0 }), true); break;
     case 'dok-info': dokInfo(el.dataset.id); break;

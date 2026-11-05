@@ -292,3 +292,9 @@ select.prio-sel { width: auto; min-height: 30px; padding: 3px 8px; font-size: 12
   #print .jdw td:nth-child(5), #print .jdw td:nth-child(6), #print .jdw td:nth-child(7) { white-space: nowrap; }
   #print .jdw small { color: #555; }
 }
+/* dokumen per kategori */
+.kat-f b { font-weight: 600; opacity: .7; margin-left: 2px; }
+.dok-t tr.dok-grp td { background: var(--surface-2); border-top: 1px solid var(--line); padding: 8px; }
+.dok-t tr.dok-grp small { margin-left: 6px; }
+.dok-t tr.dok-grp .cv { display: inline-block; width: 12px; color: var(--muted); }
+.dok-t tr.dok-sub td { font-size: 11px; font-weight: 600; letter-spacing: .03em; color: var(--muted); text-transform: uppercase; padding: 6px 8px 2px; cursor: default; }
