@@ -447,18 +447,23 @@ function sCurve() {
 }
 
 /* ---------- JADWAL (Daftar Pekerjaan + Lookahead) ---------- */
+/* pekerjaan aktif di rentang minggu (lookahead) – dipakai tampilan Jadwal & PDF Jadwal */
+function jadwalList(from, look, dis, q = '') {
+  const wF = weekObj(from), wT = weekObj(Math.min(+from + (+look || 0) - 1, D.meta.weeks.at(-1).w));
+  q = q.toLowerCase();
+  const list = D.pekerjaan.filter(p =>
+    (!dis || p.disiplin === dis) &&
+    (!q || (p.nama + ' ' + p.area + ' ' + p.bill).toLowerCase().includes(q)) &&
+    (look === 'all' || (p.mulai && wF && wT && p.mulai <= wT.end && p.selesai >= wF.start)));
+  return { wF, wT, list };
+}
 function vJadwal() {
   const cw = weekOf(tgl());
   const from = UI.jFrom ?? cw;
   const look = UI.jLook;
-  const wF = weekObj(from), wT = weekObj(Math.min(+from + (+look || 0) - 1, D.meta.weeks.at(-1).w));
-  const q = UI.jSearch.toLowerCase();
-  const list = D.pekerjaan.filter(p =>
-    (!UI.jDis || p.disiplin === UI.jDis) &&
-    (!q || (p.nama + ' ' + p.area + ' ' + p.bill).toLowerCase().includes(q)) &&
-    (look === 'all' || (p.mulai && wF && wT && p.mulai <= wT.end && p.selesai >= wF.start)));
+  const { wF, wT, list } = jadwalList(from, look, UI.jDis, UI.jSearch);
   return `
-  <h2>Jadwal & Lookahead</h2>
+  <div class="vh"><h2>Jadwal & Lookahead</h2><button class="btn sm" data-act="pdf-jadwal">PDF jadwal</button></div>
   <div class="bar">
     <input class="grow" type="search" placeholder="Cari pekerjaan / area…" value="${esc(UI.jSearch)}" data-ui="jSearch">
     <select data-ui="jDis">${opt('', UI.jDis, 'Semua disiplin')}${D.disiplin.map(d => opt(d, UI.jDis)).join('')}</select>
@@ -1185,6 +1190,54 @@ function printReport(r, o) {
   setTimeout(() => print(), 60); // beri waktu dialog tertutup
 }
 
+/* ---------- PDF Jadwal / Lookahead: 1 minggu atau beberapa minggu ke depan, bar per minggu, opsional task komitmen ---------- */
+function pdfJadwalForm() {
+  const cw = weekOf(tgl()), from = UI.jFrom ?? cw, look = UI.jLook === 'all' ? '4' : UI.jLook;
+  return `<h3>PDF Jadwal / Lookahead</h3>
+  <div class="frow">
+    <label class="f">Mulai minggu<select name="from">${D.meta.weeks.map(x => opt(x.w, from, `W${x.w} · ${x.label}${x.w === cw ? ' (ini)' : ''}`)).join('')}</select></label>
+    <label class="f">Rentang<select name="look">${[['1', '1 minggu (weekly)'], ['2', '2 minggu'], ['3', '3 minggu'], ['4', '4 minggu'], ['6', '6 minggu'], ['8', '8 minggu'], ['all', 'Semua jadwal']].map(([v, l]) => opt(v, look, l)).join('')}</select></label>
+  </div>
+  <div class="frow">
+    <label class="f">Disiplin<select name="dis">${opt('', UI.jDis, 'Semua disiplin')}${D.disiplin.map(d => opt(d, UI.jDis)).join('')}</select></label>
+    <label class="f">Susunan<select name="grp">${opt('dis', 'dis', '1 halaman per disiplin')}${opt('satu', 'dis', 'Satu tabel')}</select></label>
+  </div>
+  <label class="f" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="task" value="1" checked style="width:auto;min-height:0"> Sertakan task komitmen (kode · uraian · PIC) di bawah tiap pekerjaan</label>
+  <p class="muted" style="font-size:13px">Kolom W… menandai minggu aktif tiap pekerjaan (maks. 8 minggu; "Semua jadwal" tanpa kolom minggu). Di jendela cetak pilih <b>Simpan sebagai PDF</b>.</p>
+  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Buat PDF</button></div>`;
+}
+function printJadwal(o) {
+  const { wF, wT, list } = jadwalList(o.from, o.look, o.dis);
+  if (!list.length) { toast('Tidak ada pekerjaan di rentang ini'); return; }
+  const weeks = o.look === 'all' ? [] : D.meta.weeks.filter(x => x.w >= wF.w && x.w <= wT.w);
+  const gantt = weeks.length && weeks.length <= 8 ? weeks : [];
+  const aktifW = (a, b, w) => !!(a && b && a <= w.end && b >= w.start);
+  const per = o.look === 'all' ? 'Semua jadwal' : `W${wF.w}${wT.w !== wF.w ? '–W' + wT.w : ''} · ${fmt(wF.start)} – ${fmt(wT.end)}`;
+  const head = ['No', 'Kode', 'Pekerjaan / task', 'Area / lokasi', 'Mulai', 'Selesai', 'Bobot', 'Status · PIC'];
+  const cw = weekOf(tgl());
+  const gCells = (a, b, cls) => gantt.map(w => `<td class="g${aktifW(a, b, w) ? ' on' + cls : ''}${w.w === cw ? ' now' : ''}"></td>`).join('');
+  const rowsOf = ps => { let n = 0; return ps.map(p => {
+    const ts = o.task ? D.tasks.filter(t => t.pekerjaan === p.nama && (o.look === 'all' || (+t.minggu >= wF.w && +t.minggu <= wT.w))).sort((a, b) => a.minggu - b.minggu || a.kode.localeCompare(b.kode)) : [];
+    return `<tr class="pj"><td>${++n}</td><td>${esc(p.kode)}</td><td><b>${esc(p.nama.replace(/^\S+\s/, ''))}</b><br><small>${esc(p.bill)}</small></td><td>${esc(p.area || '')}</td>
+      <td>${fmt(p.mulai)}</td><td>${fmt(p.selesai)}</td><td>${p.bobot.toFixed(2)}%</td><td>${esc(stJadwal(p))}</td>${gCells(p.mulai, p.selesai, '')}</tr>`
+      + ts.map(t => `<tr class="tk"><td></td><td>${esc(t.kode)}</td><td>↳ ${esc(t.uraian)}${t.prio ? ` <b>[${esc(t.prio.toUpperCase())}]</b>` : ''}</td><td>${esc(t.lokasi || '')}</td>
+      <td>${fmt(t.mulai)}</td><td>${fmt(t.selesai)}</td><td>W${t.minggu}</td><td>${esc([t.disepakati === 'Ya' ? stP(t) : 'Belum sepakat', t.pic].filter(Boolean).join(' · '))}</td>
+      ${gCells(t.mulai || weekObj(t.minggu)?.start, t.selesai || weekObj(t.minggu)?.end, ' tk')}</tr>`).join('');
+  }).join(''); };
+  const groups = o.grp === 'dis' ? [...new Set(list.map(p => p.disiplin))].map(d => [d, list.filter(p => p.disiplin === d)]) : [[o.dis || 'Semua disiplin', list]];
+  $('#print').innerHTML = groups.map(([g, ps]) => `<section class="pg jdw">
+    <header><div><b>Jadwal / Lookahead${o.look === '1' ? ' Mingguan' : o.look === 'all' ? '' : ' ' + o.look + ' Minggu'}</b><span>${esc(D.meta.project)}</span></div>
+      <div class="pr-meta"><span>Disiplin: <b>${esc(g)}</b></span><span>${esc(per)}</span><span>Dicetak ${fmt(todayISO())}${D.sync.user ? ' oleh ' + esc(D.sync.user) : ''}</span></div></header>
+    <table><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join('')}${gantt.map(w => `<th class="g${w.w === cw ? ' now' : ''}">W${w.w}<br><small>${fmt(w.start).slice(0, 6)}</small></th>`).join('')}</tr></thead>
+      <tbody>${rowsOf(ps)}</tbody></table>
+    <p class="pr-n">${ps.length} pekerjaan · bobot ${ps.reduce((s, p) => s + p.bobot, 0).toFixed(2)}%${gantt.length ? ' · kotak gelap = minggu aktif pekerjaan, kotak muda = minggu task, garis merah = minggu ini' : ''}</p>
+  </section>`).join('');
+  const judul = document.title;
+  document.title = ['Jadwal', o.look === 'all' ? 'semua' : `W${wF.w}${wT.w !== wF.w ? '-W' + wT.w : ''}`, o.dis || 'Semua'].join('_');
+  addEventListener('afterprint', () => { document.title = judul; $('#print').innerHTML = ''; }, { once: true });
+  setTimeout(() => print(), 60);
+}
+
 /* ---------- dialog ---------- */
 let dlgSubmit = null;
 function openDlg(html, onSave) {
@@ -1335,6 +1388,7 @@ document.addEventListener('click', e => {
       openDlg(pdfForm(r), fd => printReport(r, { week: fd.has('week') ? fd.get('week') : UI.week, tgl: fd.get('tgl') || UI.harianTgl || tgl(), pic: fd.get('pic') || '' }));
       break;
     }
+    case 'pdf-jadwal': openDlg(pdfJadwalForm(), fd => printJadwal({ from: fd.get('from'), look: fd.get('look'), dis: fd.get('dis'), grp: fd.get('grp'), task: fd.has('task') })); break;
     case 'task-new': newTask(el.dataset.pek); break;
     case 'task-edit': editTask({ ...task }, false); break;
     case 'task-del':

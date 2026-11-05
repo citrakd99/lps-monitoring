@@ -279,3 +279,16 @@ select.prio-sel { width: auto; min-height: 30px; padding: 3px 8px; font-size: 12
 .dok-d th { width: 34%; vertical-align: top; }
 .dok-d { margin-top: 10px; }
 @media (max-width: 599px) { .dok-t .w-l { display: none; } }
+/* PDF Jadwal / Lookahead */
+@media print {
+  #print .jdw th.g, #print .jdw td.g { width: 9mm; min-width: 9mm; padding: 2px; text-align: center; white-space: nowrap; font-size: 8pt; }
+  #print .jdw td.g.on { background: #163a5f !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #print .jdw td.g.on.tk { background: #8fb3d9 !important; }
+  #print .jdw .g.now { border-left: 2px solid #c0392b; border-right: 2px solid #c0392b; }
+  #print .jdw tr.pj td { background: #f4f6f9; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #print .jdw tr.pj td.g.on { background: #163a5f !important; }
+  #print .jdw tr.tk td { font-size: 9pt; color: #333; }
+  #print .jdw td:nth-child(3) { white-space: normal; }
+  #print .jdw td:nth-child(5), #print .jdw td:nth-child(6), #print .jdw td:nth-child(7) { white-space: nowrap; }
+  #print .jdw small { color: #555; }
+}
