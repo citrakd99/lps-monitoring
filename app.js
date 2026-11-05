@@ -16,7 +16,7 @@ const opt = (v, cur, label) => `<option value="${esc(v)}"${String(v) === String(
 const pct = (x, d = 0) => x == null || isNaN(x) ? '–' : (x * 100).toFixed(d) + '%';
 
 let D = null;
-const UI = { view: 'dash', week: '', jSearch: '', jDis: '', jLook: '2', jFrom: null, harianTgl: null, focus: null, fPrio: '', sd: 'mp', mpTgl: null, mpAll: false, dokF: 'open', dokScope: '' };
+const UI = { view: 'dash', week: '', jSearch: '', jDis: '', jLook: '2', jFrom: null, harianTgl: null, focus: null, fPrio: '', sd: 'mp', mpTgl: null, mpAll: false, dokF: 'open', dokScope: '', dokJenis: '', dokQ: '' };
 
 /* ---------- tanggal ---------- */
 const todayISO = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
@@ -119,7 +119,7 @@ async function fetchSeed() {
   if (!r.ok) throw new Error('seed.json tidak ditemukan');
   return r.json();
 }
-const MASTER_F = ['meta', 'pekerjaan', 'areas', 'areaMap', 'issues', 'penyebab', 'disiplin', 'source', 'exportedAt', 'mpPlan'];
+const MASTER_F = ['meta', 'pekerjaan', 'areas', 'areaMap', 'issues', 'penyebab', 'disiplin', 'source', 'exportedAt', 'mpPlan', 'dokSrc'];
 const blank = () => ({ meta: { project: '', tglUpdate: null, targetPPC: 0.8, weeks: [], scurve: [] }, pekerjaan: [], areas: [], areaMap: {},
   issues: Object.fromEntries(KK.map(k => [k, []])), penyebab: [], disiplin: ['CSA', 'MEP', 'ARS', 'PRELIM'], tasks: [], daily: [], progress: [], mpPlan: [], manpower: [], dokumen: [] });
 const hasMaster = () => D.meta.weeks.length > 0;
@@ -373,7 +373,7 @@ function vDash() {
     <div class="kpi ${pd.ppc == null ? '' : pd.ppc >= tgt ? 'ok' : 'bad'}"><b>${pct(pd.ppc)}</b><span>PPC hari ini · ${pd.ya}/${pd.n} janji</span></div>
     <div class="kpi ${fu.some(t => t.prio === 'Urgent') ? 'bad' : fu.length ? 'warn' : ''}"><b>${fu.length}</b><span>Perlu follow up (urgent / tinggi / koordinasi)</span></div>
     ${D.mpPlan.length ? (() => { const W = mpWeek(cw), a = mpHari(tgl()), ada = D.mpPlan.some(i => mpAkt(tgl(), i.id) != null); return `<div class="kpi ${!ada ? '' : a >= W.plan ? 'ok' : 'bad'}"><b>${ada ? a : '–'}<small class="muted" style="font-size:13px"> / ${W.plan}</small></b><span>Manpower hari ini / rencana W${cw}</span></div>`; })() : ''}
-    ${D.dokumen.length ? `<div class="kpi ${D.dokumen.some(lewatDok) ? 'bad' : 'warn'}"><b>${D.dokumen.filter(x => x.status !== 'Approved').length}</b><span>Dokumen belum approve · ${D.dokumen.filter(lewatDok).length} lewat target</span></div>` : ''}
+    ${(() => { const A = allDok(); return A.length ? `<div class="kpi ${A.some(lewatDok) ? 'bad' : 'warn'}"><b>${A.filter(x => x.status !== 'Approved').length}</b><span>Dokumen belum approve · ${A.filter(lewatDok).length} lewat target</span></div>` : ''; })()}
   </div>
 
   ${fu.length ? `<div class="card">
@@ -827,8 +827,92 @@ function mpWeek(w) {
   }));
   return { g, hari: days.length, plan: GRUP_MP.reduce((s, k) => s + g[k].plan, 0), akt: days.length ? Math.round(rows.reduce((s, x) => s + x.aktual, 0) / days.length) : null };
 }
-const lewatDok = x => x.status !== 'Approved' && x.target && x.target < tgl();
+// dokumen Drive: target = rencana SUBMIT (lewat bila belum submit); dokumen manual: target = rencana APPROVE
+const lewatDok = x => x.drive ? !x.tglSubmit && !!x.target && x.target < tgl() : x.status !== 'Approved' && !!x.target && x.target < tgl();
 const dokOfTask = kode => D.dokumen.filter(x => String(x.kode).split(',').map(s => s.trim()).includes(kode));
+
+/* ---------- Dokumen dari log Google Drive (HANYA BACA lewat link berbagi "Pelihat"; tidak pernah menulis ke Drive) ----------
+   Tiap sheet "LOG LIST OF …" (kolom B–L: No, Document Number, Rev, Description, Estimated Submission, Actual Submission,
+   Response CW, Response Safran, Status, Remarks, PIC) dibaca via endpoint CSV Google (gviz). Link disimpan di master tim
+   (push_master.py --dok-link) atau per perangkat; tidak ada di kode publik. Hasil di-cache lokal agar tetap tampil offline. */
+const DOK_KEY = 'lps-batik-dok';
+let DRV = (() => { try { return JSON.parse(localStorage.getItem(DOK_KEY)) || {}; } catch { return {}; } })();
+let drvBusy = false;
+const dokSrc = () => D.settings.dokSrc || D.dokSrc || '';
+const drvId = s => (String(s || '').match(/\/d\/([\w-]{20,})/) || String(s || '').trim().match(/^([\w-]{25,})$/) || [])[1] || '';
+const drvDocs = () => (DRV.src && DRV.src === drvId(dokSrc()) && DRV.docs) || [];
+const allDok = () => [...D.dokumen, ...drvDocs()];
+const BLN_N = { jan: 1, feb: 2, mar: 3, apr: 4, mei: 5, may: 5, jun: 6, jul: 7, agu: 8, agt: 8, aug: 8, sep: 9, okt: 10, oct: 10, nov: 11, des: 12, dec: 12 };
+function tglTeks(s) {
+  s = String(s || '').trim(); if (!s) return null;
+  let m = s.match(/^\d{4}-\d{2}-\d{2}/); if (m) return m[0];
+  const p2 = v => String(v).padStart(2, '0');
+  m = s.match(/^(\d{1,2})[\s-]+([A-Za-z]{3})[A-Za-z]*\.?[\s-]+(\d{4})/);
+  if (m && BLN_N[m[2].toLowerCase()]) return `${m[3]}-${p2(BLN_N[m[2].toLowerCase()])}-${p2(m[1])}`;
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); return m ? `${m[3]}-${p2(m[2])}-${p2(m[1])}` : null;
+}
+function parseCsv(t) {
+  const rows = []; let r = [], f = '', q = false;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (q) { if (c === '"') { if (t[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+    else if (c === '"') q = true; else if (c === ',') { r.push(f); f = ''; } else if (c === '\n') { r.push(f); rows.push(r); r = []; f = ''; } else if (c !== '\r') f += c;
+  }
+  if (f || r.length) { r.push(f); rows.push(r); }
+  return rows;
+}
+const stDrv = s => { s = s.toLowerCase(); return /reject/.test(s) ? 'Rejected' : /not approved|revis/.test(s) ? 'Revisi' : /approved|closed/.test(s) ? 'Approved' : /submit|open|review/.test(s) ? 'Submitted' : 'Draft'; };
+function drvSheet(name, gid, rows, id) {
+  const hi = rows.findIndex(r => /document number/i.test(r[2] || ''));
+  if (hi < 0 || !rows.slice(0, hi).some(r => /log list/i.test(r[1] || ''))) return []; // bukan sheet log (Numbering, Monitoring, …)
+  const jenis = name.trim(), by = new Map();
+  let scope = '', sub = '';
+  for (const r of rows.slice(hi + 1)) {
+    const c = i => String(r[i] ?? '').trim(), no = c(2), desc = c(4);
+    if (!no && !desc) { // baris judul seksi: "SHOP DRAWING - CSA" → scope, "STRUCTURE" → sub
+      const s = c(1); if (!s) continue;
+      const m = s.match(/[-–]\s*(CSA|MEP|ARS|PRELIM)\b/i);
+      if (m) { scope = m[1].toUpperCase(); sub = ''; } else sub = s.replace(/^(method statement|jsa)\s*[-–]\s*/i, '');
+      continue;
+    }
+    const key = /^SBP-/i.test(no) ? no.toUpperCase() : no + '|' + desc;
+    if (!by.has(key)) by.set(key, { no, desc, scope: scope || ((no.match(/-(CSA|MEP)-/i) || [])[1] || '').toUpperCase(), sub, revs: [] });
+    by.get(key).revs.push({ rev: +c(3) || 0, est: tglTeks(c(5)), sub: tglTeks(c(6)), cw: tglTeks(c(7)), own: tglTeks(c(8)), st: c(9), rem: c(10), pic: c(11) });
+  }
+  const link = `https://docs.google.com/spreadsheets/d/${id}/edit#gid=${gid}`;
+  return [...by.entries()].map(([key, d]) => {
+    const revs = d.revs.sort((a, b) => a.rev - b.rev), x = revs.at(-1), status = stDrv(x.st || '');
+    return { id: 'g:' + jenis + ':' + key, drive: true, jenis, scope: d.scope, sub: d.sub, nomor: d.no, nama: d.desc || d.no, rev: x.rev,
+      status, stAsli: x.st || 'Belum submit', target: x.est, tglSubmit: x.sub, respon: x.own || x.cw || null, tglApprove: status === 'Approved' ? (x.own || x.cw || null) : null,
+      issue: x.rem, pic: x.pic, kode: '', link,
+      riwayat: revs.map(v => `Rev ${v.rev} · ${v.st || '-'}${v.sub ? ' · submit ' + fmt(v.sub) : ''}${v.own || v.cw ? ' · respon ' + fmt(v.own || v.cw) : ''}${v.rem ? '\n   ' + v.rem.replace(/\s*\n\s*/g, ' ') : ''}`).join('\n') };
+  });
+}
+async function drvLoad(manual) {
+  const id = drvId(dokSrc()); if (!id || drvBusy) return;
+  drvBusy = true; if (UI.view === 'sd') render();
+  const base = `https://docs.google.com/spreadsheets/d/${id}/`;
+  try {
+    const html = await (await fetch(base + 'htmlview')).text();
+    const sh = [...html.matchAll(/\{name: "((?:[^"\\]|\\.)*)", pageUrl: "[^"]*", gid: "(\d+)"/g)]
+      .map(m => [m[1].replace(/\\x([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/\\(.)/g, '$1'), m[2]]);
+    if (!sh.length) throw new Error('Daftar sheet tidak terbaca. Pastikan akses link: "Siapa saja yang memiliki link" (Pelihat).');
+    const docs = (await Promise.all(sh.map(async ([n, gid]) => {
+      const r = await fetch(base + 'gviz/tq?tqx=out:csv&headers=0&gid=' + gid);
+      if (!r.ok) throw new Error(`Sheet ${n}: HTTP ${r.status}`);
+      return drvSheet(n, gid, parseCsv(await r.text()), id);
+    }))).flat();
+    DRV = { src: id, at: new Date().toISOString(), docs, err: '' };
+  } catch (e) {
+    DRV = { src: id, docs: DRV.src === id ? DRV.docs : [], at: new Date().toISOString(), err: /fetch|network/i.test(e.message) ? 'Tidak bisa membaca Drive (offline, atau link belum dibagikan "Siapa saja yang memiliki link")' : e.message };
+  }
+  drvBusy = false;
+  try { localStorage.setItem(DOK_KEY, JSON.stringify(DRV)); } catch { /* penyimpanan penuh: tetap tampil di sesi ini */ }
+  render();
+  if (manual) toast(DRV.err ? DRV.err : `${DRV.docs.length} dokumen dibaca dari Drive`);
+}
+// buka tab Dokumen → baca ulang otomatis bila cache > 10 menit
+const drvAuto = () => { if (drvId(dokSrc()) && !drvBusy && (!DRV.at || DRV.src !== drvId(dokSrc()) || Date.now() - new Date(DRV.at) > 6e5)) setTimeout(() => drvLoad(false)); };
 
 function vSD() {
   return `<div class="vh"><h2>Sumber daya</h2></div>
@@ -895,37 +979,65 @@ function mpChart() {
 }
 
 function vDok() {
-  const f = UI.dokF, sc = UI.dokScope, all = D.dokumen;
-  const L = all.filter(x => (!sc || x.scope === sc) && (!f || (f === 'open' ? x.status !== 'Approved' : f === 'lewat' ? lewatDok(x) : x.status === f)))
+  drvAuto();
+  const f = UI.dokF, sc = UI.dokScope, jn = UI.dokJenis, q = UI.dokQ.toLowerCase().trim(), all = allDok();
+  const jenisL = [...new Set(all.map(x => x.jenis || 'Manual'))];
+  const scopeL = [...new Set([...D.disiplin, ...all.map(x => x.scope).filter(Boolean)])];
+  const L = all.filter(x => (!sc || x.scope === sc) && (!jn || (x.jenis || 'Manual') === jn)
+      && (!q || [x.nomor, x.nama, x.pic, x.sub, x.issue].join(' ').toLowerCase().includes(q))
+      && (!f || (f === 'open' ? x.status !== 'Approved' : f === 'lewat' ? lewatDok(x) : x.status === f)))
     .sort((a, b) => (lewatDok(b) - lewatDok(a)) || ((a.status === 'Approved') - (b.status === 'Approved')) || String(a.target || '9999').localeCompare(String(b.target || '9999')));
   const n = s => all.filter(x => x.status === s).length, lw = all.filter(lewatDok).length;
-  const FD = { '': 'Semua', open: 'Belum approve', lewat: 'Lewat target', Draft: 'Draft', Submitted: 'Submitted', Revisi: 'Revisi', Rejected: 'Rejected', Approved: 'Approved' };
-  return `
+  const tunggu = x => x.status === 'Submitted' && x.tglSubmit && !x.respon ? days(x.tglSubmit, tgl()) : null;
+  const FD = { '': 'Semua', open: 'Belum approve', lewat: 'Lewat target', Draft: 'Draft', Submitted: 'Submitted', Revisi: 'Revisi / Not Approved', Rejected: 'Rejected', Approved: 'Approved' };
+  const id = drvId(dokSrc());
+  const src = id ? `<div class="card" style="padding:10px 14px"><div class="bar" style="margin:0">
+      <span class="muted" style="font-size:13px">Log dokumen Drive (hanya baca) · ${drvBusy ? 'membaca…' : DRV.at && DRV.src === id ? `${drvDocs().length} dokumen · dibaca ${new Date(DRV.at).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : 'belum dibaca'}</span>
+      <span style="flex:1"></span><button class="btn sm" data-act="drv-load" ${drvBusy ? 'disabled' : ''}>Muat ulang</button><button class="btn sm" data-act="drv-set">Link</button></div>
+      ${DRV.err && DRV.src === id ? `<p class="muted" style="color:var(--bad);margin:6px 0 0;font-size:13px">${esc(DRV.err)}</p>` : ''}</div>`
+    : `<div class="card"><b>Ambil dokumen dari log Google Drive</b><p class="muted" style="font-size:13px">Tempel link Google Sheet log dokumen (akses link: "Siapa saja yang memiliki link" – Pelihat). Aplikasi hanya membaca, tidak mengubah file.</p><button class="btn pri" data-act="drv-set">Atur link Drive</button></div>`;
+  return `${src}
   <div class="grid kpis">
     <div class="kpi"><b>${all.length}</b><span>Total dokumen</span></div>
     <div class="kpi ok"><b>${n('Approved')}</b><span>Approved</span></div>
     <div class="kpi info"><b>${n('Submitted')}</b><span>Menunggu review</span></div>
-    <div class="kpi warn"><b>${n('Revisi') + n('Rejected')}</b><span>Revisi / Rejected</span></div>
-    <div class="kpi ${lw ? 'bad' : ''}"><b>${lw}</b><span>Lewat target approve</span></div>
+    <div class="kpi warn"><b>${n('Revisi') + n('Rejected')}</b><span>Not approved / Revisi / Rejected</span></div>
+    <div class="kpi ${lw ? 'bad' : ''}"><b>${lw}</b><span>Lewat target</span></div>
   </div>
   <div class="prio-f">${Object.entries(FD).map(([k, l]) => `<button type="button" data-act="dok-f" data-v="${k}" class="${f === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-  <div class="bar"><select data-ui="dokScope" style="width:auto">${opt('', sc, 'Semua scope')}${D.disiplin.map(d => opt(d, sc)).join('')}</select></div>
+  <div class="bar"><select data-ui="dokJenis" style="width:auto">${opt('', jn, 'Semua jenis')}${jenisL.map(d => opt(d, jn)).join('')}</select>
+    <select data-ui="dokScope" style="width:auto">${opt('', sc, 'Semua scope')}${scopeL.map(d => opt(d, sc)).join('')}</select>
+    <input type="search" data-ui="dokQ" value="${esc(UI.dokQ)}" placeholder="Cari nomor / nama / PIC" style="flex:1;min-width:160px"></div>
+  <p class="muted" style="font-size:13px;margin:0 0 8px">${L.length} dokumen</p>
   ${L.map(x => {
-    const sisa = x.target ? days(tgl(), x.target) : null, tasks = String(x.kode).split(',').map(s => s.trim()).filter(Boolean);
-    const next = { Draft: [['Submitted', 'Submit']], Submitted: [['Approved', 'Approve'], ['Revisi', 'Revisi'], ['Rejected', 'Reject']], Revisi: [['Submitted', `Submit ulang (Rev ${x.rev + 1})`]], Rejected: [['Submitted', `Submit ulang (Rev ${x.rev + 1})`]] }[x.status] || [];
+    const sisa = x.target ? days(tgl(), x.target) : null, tasks = String(x.kode).split(',').map(s => s.trim()).filter(Boolean), tg = tunggu(x);
+    const next = x.drive ? [] : { Draft: [['Submitted', 'Submit']], Submitted: [['Approved', 'Approve'], ['Revisi', 'Revisi'], ['Rejected', 'Reject']], Revisi: [['Submitted', `Submit ulang (Rev ${x.rev + 1})`]], Rejected: [['Submitted', `Submit ulang (Rev ${x.rev + 1})`]] }[x.status] || [];
+    const chip = x.drive && x.stAsli !== x.status ? `<span class="chip ${({ Approved: 'ok', Submitted: 'info', Revisi: 'warn', Rejected: 'bad' })[x.status] || ''}">${esc(x.stAsli)}</span>` : dokChip(x.status);
     return `<div class="item" id="d-${esc(x.id)}">
       <div class="hd"><div><span class="code">${esc(x.nomor || '(tanpa nomor)')} · Rev ${x.rev}</span> <span class="ttl">${esc(x.nama)}</span>
-        <div class="sub">${esc([x.scope, x.pic && 'PIC ' + x.pic].filter(Boolean).join(' · '))}</div></div>
-        <div class="chips">${dokChip(x.status)}${lewatDok(x) ? `<span class="chip bad">lewat ${-sisa} hari</span>` : x.status !== 'Approved' && sisa != null ? `<span class="chip">sisa ${sisa} hari</span>` : ''}</div></div>
-      <div class="meta"><span>Target approve <b>${fmt(x.target)}</b></span><span>Submit ${fmt(x.tglSubmit)}</span>${x.tglApprove ? `<span>Approved ${fmt(x.tglApprove)}</span>` : ''}
+        <div class="sub">${esc([x.jenis, x.scope, x.sub, x.pic && 'PIC ' + x.pic].filter(Boolean).join(' · '))}</div></div>
+        <div class="chips">${chip}${lewatDok(x) ? `<span class="chip bad">lewat ${-sisa} hari</span>` : tg != null ? `<span class="chip ${tg > 7 ? 'warn' : ''}">menunggu ${tg} hari</span>` : !x.drive && x.status !== 'Approved' && sisa != null ? `<span class="chip">sisa ${sisa} hari</span>` : ''}</div></div>
+      <div class="meta">${x.drive ? `<span>Rencana submit <b>${fmt(x.target)}</b></span><span>Submit ${fmt(x.tglSubmit)}</span>${x.respon ? `<span>Respon ${fmt(x.respon)}</span>` : ''}`
+        : `<span>Target approve <b>${fmt(x.target)}</b></span><span>Submit ${fmt(x.tglSubmit)}</span>${x.tglApprove ? `<span>Approved ${fmt(x.tglApprove)}</span>` : ''}`}
         ${tasks.map(k => `<a href="#ready" data-act="goto-ready" data-kode="${esc(k)}" class="chip info" style="text-decoration:none">${esc(k)}</a>`).join('')}</div>
-      ${x.issue && (x.status === 'Revisi' || x.status === 'Rejected') ? `<div class="fu">↳ ${esc(x.issue)}</div>` : ''}
+      ${x.issue && (x.drive ? x.status !== 'Approved' || x.stAsli !== 'Approved' : x.status === 'Revisi' || x.status === 'Rejected') ? `<div class="fu">↳ ${esc(x.issue)}</div>` : ''}
       <div class="bar" style="margin:10px 0 0">${next.map(([v, l]) => `<button class="btn sm ${v === 'Approved' ? 'pri' : v === 'Rejected' ? 'danger' : ''}" data-act="dok-st" data-id="${esc(x.id)}" data-v="${v}">${esc(l)}</button>`).join('')}
-        <span style="flex:1"></span>${x.link ? `<a class="btn sm" href="${esc(x.link)}" target="_blank" rel="noopener">Buka file</a>` : ''}<button class="btn sm" data-act="dok-edit" data-id="${esc(x.id)}">Ubah</button></div>
+        <span style="flex:1"></span>${x.link ? `<a class="btn sm" href="${esc(x.link)}" target="_blank" rel="noopener">${x.drive ? 'Buka log' : 'Buka file'}</a>` : ''}${x.drive ? '' : `<button class="btn sm" data-act="dok-edit" data-id="${esc(x.id)}">Ubah</button>`}</div>
       ${x.riwayat ? `<details style="margin-top:6px"><summary class="muted" style="font-size:13px">Riwayat</summary><pre class="riwayat">${esc(x.riwayat)}</pre></details>` : ''}
     </div>`;
-  }).join('') || '<div class="empty">Belum ada dokumen untuk filter ini. Tekan <b>+ Dokumen</b>.</div>'}
+  }).join('') || `<div class="empty">${drvBusy ? 'Membaca log dokumen dari Drive…' : 'Belum ada dokumen untuk filter ini.'}</div>`}
   <button class="btn pri fab" data-act="dok-new">+ Dokumen</button>`;
+}
+function drvSet() {
+  openDlg(`<h3>Link log dokumen (Google Drive)</h3>
+    <label class="f">Link Google Sheet<input type="text" name="src" inputmode="url" value="${esc(D.settings.dokSrc || '')}" placeholder="${D.dokSrc ? 'Dari Sheet tim (biarkan kosong)' : 'https://docs.google.com/spreadsheets/d/…'}"></label>
+    <p class="muted" style="font-size:13px">Aplikasi hanya membaca file ini; tidak ada yang ditulis ke Drive. Akses link harus "Siapa saja yang memiliki link" (Pelihat).
+    ${D.dokSrc ? '<br>Link tim sudah diatur admin (push_master.py --dok-link). Isi di sini hanya bila ingin memakai link lain di perangkat ini.' : '<br>Agar berlaku untuk semua anggota tim, admin menjalankan push_master.py dengan --dok-link.'}</p>
+    <div class="dlg-act"><span class="sp"></span><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Simpan</button></div>`, fd => {
+    const s = String(fd.get('src') || '').trim();
+    if (s && !drvId(s)) { toast('Link tidak dikenali – salin link dari tombol Bagikan Google Sheet'); return; }
+    D.settings.dokSrc = s; persist(); DRV = {}; render(); drvLoad(true);
+  });
 }
 function dokForm(x, isNew) {
   const kode = String(x.kode).split(',').map(s => s.trim());
@@ -1185,6 +1297,8 @@ document.addEventListener('click', e => {
       break;
     }
     case 'dok-f': UI.dokF = el.dataset.v; render(); break;
+    case 'drv-load': drvLoad(true); break;
+    case 'drv-set': drvSet(); break;
     case 'dok-new': editDok(normDok({ scope: D.disiplin[0], status: 'Draft', rev: 0 }), true); break;
     case 'dok-edit': editDok({ ...D.dokumen.find(x => x.id === el.dataset.id) }, false); break;
     case 'dok-del':
@@ -1308,11 +1422,12 @@ document.addEventListener('input', e => {
     document.querySelectorAll('#jr-pick .pick-i').forEach(l => { l.hidden = !!q && !l.dataset.cari.includes(q); });
     return;
   }
-  if (e.target.dataset.ui !== 'jSearch') return;
-  UI.jSearch = e.target.value;
+  const k = e.target.dataset.ui;
+  if (k !== 'jSearch' && k !== 'dokQ') return;
+  UI[k] = e.target.value;
   const pos = e.target.selectionStart;
   render();
-  const s = document.querySelector('[data-ui="jSearch"]'); s.focus(); s.setSelectionRange(pos, pos);
+  const s = document.querySelector(`[data-ui="${k}"]`); s.focus(); s.setSelectionRange(pos, pos);
 });
 $('#f-week').addEventListener('change', e => { UI.week = e.target.value; render(); });
 
