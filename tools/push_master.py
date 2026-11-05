@@ -2,7 +2,7 @@
 bisa memuatnya setelah kode akses diisi.
 
 Pemakaian (setelah export_excel.py):
-    python push_master.py <URL_WEB_APP_/exec> <KODE_AKSES> [seed.json] [--nama "Admin"]
+    python push_master.py <URL_WEB_APP_/exec> <KODE_AKSES> [seed.json] [--nama "Admin"] [--dok-link "LINK_GOOGLE_SHEET_DOKUMEN"]
 
 Yang dikirim:
   - master  : meta (minggu, kurva-S), pekerjaan, area, daftar issue, penyebab  → tab Master (ditimpa)
@@ -47,6 +47,11 @@ def main():
         i = args.index("--nama")
         nama = args[i + 1]
         del args[i:i + 2]
+    dok_link = None
+    if "--dok-link" in args:  # link Google Sheet log dokumen (dibaca aplikasi, hanya baca); kosong "" = hapus
+        i = args.index("--dok-link")
+        dok_link = args[i + 1].strip()
+        del args[i:i + 2]
     if len(args) < 2:
         sys.exit(__doc__)
     m = re.search(r"https?://\S+", args[0])  # toleran: spasi/teks lain ikut tertempel di argumen URL
@@ -59,6 +64,11 @@ def main():
     team = post(url, {"key": key, "user": nama, "since": 0, "masterVer": "-"})
     now = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     body = {"key": key, "user": nama, "since": team["rev"], "master": {f: seed[f] for f in MASTER_F if f in seed}}
+    # link log dokumen Drive: tetap pakai yang sudah ada di Sheet tim bila tidak diberikan
+    old_link = (team.get("master") or {}).get("dokSrc") or ""
+    body["master"]["dokSrc"] = old_link if dok_link is None else dok_link
+    if body["master"]["dokSrc"] != old_link:  # versi master = exportedAt; ganti agar perangkat tim menarik master baru
+        body["master"]["exportedAt"] = now
     known_dok = {str(r["id"]) for r in team.get("dokumen", [])}
     body["dokumen"] = [{**r, "_u": now, "_by": nama} for r in seed.get("dokumen", []) if str(r["id"]) not in known_dok]
     known = {str(r["kode"]) for r in team.get("tasks", [])}
@@ -92,6 +102,8 @@ def main():
     print(f"Daily log: {n_new} baru, {len(body['daily']) - n_new - len(old)} diperbarui dari Excel, {len(old)} baris model lama dihapus.")
     if body["progress"]:
         print(f"Actual progress mingguan dari Excel: {len(body['progress'])} minggu diperbarui.")
+    if body["master"]["dokSrc"]:
+        print("Link log dokumen Drive: " + ("diperbarui" if dok_link is not None else "tetap") + " (aplikasi membacanya langsung, hanya baca).")
     if res.get("skipped"):
         print(f"Catatan: {res['skipped']} record dilewati karena versi di Sheet lebih baru.")
 

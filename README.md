@@ -13,6 +13,11 @@ Aplikasi ringan (PWA, bisa di-install di HP, jalan offline) untuk monitoring Kom
    python tools/push_master.py <URL_WEB_APP_/exec> <KODE_AKSES> --nama "Admin"
    ```
    HP mengambil jadwal baru otomatis pada sinkron berikutnya.
+   Log dokumen dibaca aplikasi langsung dari Google Sheet di Drive (hanya baca). Atur link-nya sekali untuk seluruh tim
+   (akses link: "Siapa saja yang memiliki link" – Pelihat); link disimpan di Sheet tim, bukan di repo publik:
+   ```bash
+   python tools/push_master.py <URL_WEB_APP_/exec> <KODE_AKSES> --nama "Admin" --dok-link "https://docs.google.com/spreadsheets/d/…/edit"
+   ```
 3. Perubahan kode aplikasi: naikkan `CACHE` di `app/sw.js`, commit, lalu terbitkan ulang folder `app/` ke cabang `gh-pages`:
    ```bash
    git push origin main
