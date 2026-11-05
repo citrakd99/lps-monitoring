@@ -268,3 +268,14 @@ select.prio-sel { width: auto; min-height: 30px; padding: 3px 8px; font-size: 12
   #print footer { display: flex; justify-content: space-between; margin-top: 18px; break-inside: avoid; }
   #print footer div { width: 40%; text-align: center; font-size: 10pt; }
 }
+/* daftar dokumen sebagai tabel; ketuk baris → detail */
+.dok-t { padding: 0; overflow: hidden; }
+.dok-t .tbl td { vertical-align: top; }
+.dok-t tbody tr { cursor: pointer; }
+.dok-t tbody tr:hover, .dok-t tbody tr:focus { background: var(--bg); }
+.dok-t .code { font-size: 11px; }
+.dok-t .chip { font-size: 11px; padding: 1px 6px; white-space: nowrap; }
+.dok-t td.n { white-space: nowrap; }
+.dok-d th { width: 34%; vertical-align: top; }
+.dok-d { margin-top: 10px; }
+@media (max-width: 599px) { .dok-t .w-l { display: none; } }

@@ -885,7 +885,7 @@ function drvSheet(name, gid, rows, id) {
     return { id: 'g:' + jenis + ':' + key, drive: true, jenis, scope: d.scope, sub: d.sub, nomor: d.no, nama: d.desc || d.no, rev: x.rev,
       status, stAsli: x.st || 'Belum submit', target: x.est, tglSubmit: x.sub, respon: x.own || x.cw || null, tglApprove: status === 'Approved' ? (x.own || x.cw || null) : null,
       issue: x.rem, pic: x.pic, kode: '', link,
-      riwayat: revs.map(v => `Rev ${v.rev} · ${v.st || '-'}${v.sub ? ' · submit ' + fmt(v.sub) : ''}${v.own || v.cw ? ' · respon ' + fmt(v.own || v.cw) : ''}${v.rem ? '\n   ' + v.rem.replace(/\s*\n\s*/g, ' ') : ''}`).join('\n') };
+      riwayat: revs.length < 2 ? "" : revs.map(v => `Rev ${v.rev} · ${v.st || '-'}${v.sub ? ' · submit ' + fmt(v.sub) : ''}${v.own || v.cw ? ' · respon ' + fmt(v.own || v.cw) : ''}${v.rem ? '\n   ' + v.rem.replace(/\s*\n\s*/g, ' ') : ''}`).join('\n') };
   });
 }
 async function drvLoad(manual) {
@@ -1008,25 +1008,44 @@ function vDok() {
   <div class="bar"><select data-ui="dokJenis" style="width:auto">${opt('', jn, 'Semua jenis')}${jenisL.map(d => opt(d, jn)).join('')}</select>
     <select data-ui="dokScope" style="width:auto">${opt('', sc, 'Semua scope')}${scopeL.map(d => opt(d, sc)).join('')}</select>
     <input type="search" data-ui="dokQ" value="${esc(UI.dokQ)}" placeholder="Cari nomor / nama / PIC" style="flex:1;min-width:160px"></div>
-  <p class="muted" style="font-size:13px;margin:0 0 8px">${L.length} dokumen</p>
-  ${L.map(x => {
-    const sisa = x.target ? days(tgl(), x.target) : null, tasks = String(x.kode).split(',').map(s => s.trim()).filter(Boolean), tg = tunggu(x);
-    const next = x.drive ? [] : { Draft: [['Submitted', 'Submit']], Submitted: [['Approved', 'Approve'], ['Revisi', 'Revisi'], ['Rejected', 'Reject']], Revisi: [['Submitted', `Submit ulang (Rev ${x.rev + 1})`]], Rejected: [['Submitted', `Submit ulang (Rev ${x.rev + 1})`]] }[x.status] || [];
-    const chip = x.drive && x.stAsli !== x.status ? `<span class="chip ${({ Approved: 'ok', Submitted: 'info', Revisi: 'warn', Rejected: 'bad' })[x.status] || ''}">${esc(x.stAsli)}</span>` : dokChip(x.status);
-    return `<div class="item" id="d-${esc(x.id)}">
-      <div class="hd"><div><span class="code">${esc(x.nomor || '(tanpa nomor)')} · Rev ${x.rev}</span> <span class="ttl">${esc(x.nama)}</span>
-        <div class="sub">${esc([x.jenis, x.scope, x.sub, x.pic && 'PIC ' + x.pic].filter(Boolean).join(' · '))}</div></div>
-        <div class="chips">${chip}${lewatDok(x) ? `<span class="chip bad">lewat ${-sisa} hari</span>` : tg != null ? `<span class="chip ${tg > 7 ? 'warn' : ''}">menunggu ${tg} hari</span>` : !x.drive && x.status !== 'Approved' && sisa != null ? `<span class="chip">sisa ${sisa} hari</span>` : ''}</div></div>
-      <div class="meta">${x.drive ? `<span>Rencana submit <b>${fmt(x.target)}</b></span><span>Submit ${fmt(x.tglSubmit)}</span>${x.respon ? `<span>Respon ${fmt(x.respon)}</span>` : ''}`
-        : `<span>Target approve <b>${fmt(x.target)}</b></span><span>Submit ${fmt(x.tglSubmit)}</span>${x.tglApprove ? `<span>Approved ${fmt(x.tglApprove)}</span>` : ''}`}
-        ${tasks.map(k => `<a href="#ready" data-act="goto-ready" data-kode="${esc(k)}" class="chip info" style="text-decoration:none">${esc(k)}</a>`).join('')}</div>
-      ${x.issue && (x.drive ? x.status !== 'Approved' || x.stAsli !== 'Approved' : x.status === 'Revisi' || x.status === 'Rejected') ? `<div class="fu">↳ ${esc(x.issue)}</div>` : ''}
-      <div class="bar" style="margin:10px 0 0">${next.map(([v, l]) => `<button class="btn sm ${v === 'Approved' ? 'pri' : v === 'Rejected' ? 'danger' : ''}" data-act="dok-st" data-id="${esc(x.id)}" data-v="${v}">${esc(l)}</button>`).join('')}
-        <span style="flex:1"></span>${x.link ? `<a class="btn sm" href="${esc(x.link)}" target="_blank" rel="noopener">${x.drive ? 'Buka log' : 'Buka file'}</a>` : ''}${x.drive ? '' : `<button class="btn sm" data-act="dok-edit" data-id="${esc(x.id)}">Ubah</button>`}</div>
-      ${x.riwayat ? `<details style="margin-top:6px"><summary class="muted" style="font-size:13px">Riwayat</summary><pre class="riwayat">${esc(x.riwayat)}</pre></details>` : ''}
-    </div>`;
-  }).join('') || `<div class="empty">${drvBusy ? 'Membaca log dokumen dari Drive…' : 'Belum ada dokumen untuk filter ini.'}</div>`}
+  ${L.length ? `<div class="card dok-t"><table class="tbl">
+    <thead><tr><th>Dokumen</th><th class="w-l">Jenis</th><th class="w-l">PIC</th><th>Status</th><th class="n">Tanggal</th></tr></thead>
+    <tbody>${L.map(x => {
+      const tg = tunggu(x), lw = lewatDok(x);
+      const tanggal = x.respon ? ['Respon', x.respon] : x.tglSubmit ? ['Submit', x.tglSubmit] : [x.drive ? 'Rencana submit' : 'Target', x.target];
+      return `<tr id="d-${esc(x.id)}" data-act="dok-info" data-id="${esc(x.id)}">
+        <td><span class="code">${esc(x.nomor || '(tanpa nomor)')}${x.rev ? ' · Rev ' + x.rev : ''}</span><br>${esc(x.nama)}</td>
+        <td class="w-l">${esc(x.jenis || 'Manual')}</td><td class="w-l">${esc(x.pic || '–')}</td>
+        <td>${dokStChip(x)}${lw ? `<br><span class="chip bad">lewat</span>` : tg != null && tg > 7 ? `<br><span class="chip warn">${tg} hr</span>` : ''}</td>
+        <td class="n"><small class="muted">${tanggal[0]}</small><br>${fmt(tanggal[1])}</td></tr>`;
+    }).join('')}</tbody></table></div>
+    <p class="muted" style="font-size:12px">${L.length} dokumen · ketuk baris untuk detail</p>`
+    : `<div class="empty">${drvBusy ? 'Membaca log dokumen dari Drive…' : 'Belum ada dokumen untuk filter ini.'}</div>`}
   <button class="btn pri fab" data-act="dok-new">+ Dokumen</button>`;
+}
+const dokStChip = x => x.drive && x.stAsli !== x.status ? `<span class="chip ${({ Approved: 'ok', Submitted: 'info', Revisi: 'warn', Rejected: 'bad' })[x.status] || ''}">${esc(x.stAsli)}</span>` : dokChip(x.status);
+/* detail satu dokumen (dialog) – dokumen Drive hanya baca, dokumen manual bisa diubah statusnya */
+function dokInfo(id) {
+  const x = allDok().find(d => d.id === id); if (!x) return;
+  const sisa = x.target ? days(tgl(), x.target) : null, tasks = String(x.kode).split(',').map(s => s.trim()).filter(Boolean);
+  const tg = x.status === 'Submitted' && x.tglSubmit && !x.respon ? days(x.tglSubmit, tgl()) : null;
+  const next = x.drive ? [] : { Draft: [['Submitted', 'Submit']], Submitted: [['Approved', 'Approve'], ['Revisi', 'Revisi'], ['Rejected', 'Reject']], Revisi: [['Submitted', `Submit ulang (Rev ${x.rev + 1})`]], Rejected: [['Submitted', `Submit ulang (Rev ${x.rev + 1})`]] }[x.status] || [];
+  const row = (k, v) => v ? `<tr><th>${k}</th><td>${v}</td></tr>` : '';
+  openDlg(`<h3 style="margin-bottom:2px">${esc(x.nama)}</h3>
+    <p class="code" style="margin:0 0 8px">${esc(x.nomor || '(tanpa nomor)')} · Rev ${x.rev}</p>
+    <div class="chips" style="justify-content:flex-start">${dokStChip(x)}${lewatDok(x) ? `<span class="chip bad">lewat ${-sisa} hari</span>` : tg != null ? `<span class="chip ${tg > 7 ? 'warn' : ''}">menunggu respon ${tg} hari</span>` : !x.drive && x.status !== 'Approved' && sisa != null ? `<span class="chip">sisa ${sisa} hari</span>` : ''}</div>
+    <table class="tbl dok-d">
+      ${row('Jenis', esc(x.jenis || 'Manual'))}${row('Scope', esc([x.scope, x.sub].filter(Boolean).join(' · ')))}${row('PIC', esc(x.pic))}
+      ${x.drive ? row('Rencana submit', fmt(x.target)) + row('Submit', fmt(x.tglSubmit)) + row('Respon', x.respon && fmt(x.respon))
+        : row('Target approve', fmt(x.target)) + row('Submit', fmt(x.tglSubmit)) + row('Approved', x.tglApprove && fmt(x.tglApprove))}
+      ${row('Remarks / issue', x.issue && esc(x.issue).replace(/\n/g, '<br>'))}
+      ${row('Task LPS', tasks.map(k => `<a href="#ready" data-act="goto-ready" data-kode="${esc(k)}" class="chip info" style="text-decoration:none">${esc(k)}</a>`).join(' '))}
+    </table>
+    ${x.riwayat ? `<details open style="margin-top:8px"><summary class="muted" style="font-size:13px">Riwayat revisi</summary><pre class="riwayat">${esc(x.riwayat)}</pre></details>` : ''}
+    ${x.drive ? '<p class="muted" style="font-size:12px">Dari log Google Drive (hanya baca). Perubahan dilakukan di file Drive.</p>' : ''}
+    <div class="dlg-act" style="flex-wrap:wrap">${next.map(([v, l]) => `<button type="button" class="btn sm ${v === 'Approved' ? 'pri' : v === 'Rejected' ? 'danger' : ''}" data-act="dok-st" data-id="${esc(x.id)}" data-v="${v}">${esc(l)}</button>`).join('')}
+      <span class="sp"></span>${x.link ? `<a class="btn" href="${esc(x.link)}" target="_blank" rel="noopener">${x.drive ? 'Buka log' : 'Buka file'}</a>` : ''}${x.drive ? '' : `<button type="button" class="btn" data-act="dok-edit" data-id="${esc(x.id)}">Ubah</button>`}
+      <button value="cancel" class="btn" formnovalidate>Tutup</button></div>`, null);
 }
 function drvSet() {
   openDlg(`<h3>Link log dokumen (Google Drive)</h3>
@@ -1269,6 +1288,8 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]');
   if (!el) return;
   const a = el.dataset.act, kode = el.dataset.kode, task = kode && D.tasks.find(t => t.kode === kode);
+  // tombol di dialog detail dokumen: tutup detail dulu (dialog berikutnya memakai #dlg yang sama)
+  if (['dok-st', 'dok-edit', 'goto-ready'].includes(a) && el.closest('#dlg')?.open) $('#dlg').close();
   switch (a) {
     case 'settings':
       openDlg(settingsForm(), fd => {
@@ -1300,13 +1321,14 @@ document.addEventListener('click', e => {
     case 'drv-load': drvLoad(true); break;
     case 'drv-set': drvSet(); break;
     case 'dok-new': editDok(normDok({ scope: D.disiplin[0], status: 'Draft', rev: 0 }), true); break;
+    case 'dok-info': dokInfo(el.dataset.id); break;
     case 'dok-edit': editDok({ ...D.dokumen.find(x => x.id === el.dataset.id) }, false); break;
     case 'dok-del':
       if (confirm('Hapus dokumen ini?')) { D.dokumen = D.dokumen.filter(x => x.id !== el.dataset.id); save(); $('#dlg').close(); render(); }
       break;
     case 'dok-st': dokStatus(D.dokumen.find(x => x.id === el.dataset.id), el.dataset.v); break;
     case 'dok-kendala': dokKendala(task); break;
-    case 'goto-dok': UI.sd = 'dok'; UI.dokF = ''; UI.focus = 'd-' + el.dataset.id; if (UI.view === 'sd') render(); break;
+    case 'goto-dok': UI.sd = 'dok'; UI.dokF = ''; UI.focus = 'd-' + el.dataset.id; if (UI.view === 'sd') render(); dokInfo(el.dataset.id); break;
     case 'fprio': UI.fPrio = el.dataset.v; if (el.tagName === 'A') break; render(); break; // <a> → hashchange render
     case 'pdf': {
       const r = el.dataset.r;
