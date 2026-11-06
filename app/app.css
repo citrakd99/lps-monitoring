@@ -311,3 +311,4 @@ a.kpi:hover { border-color: var(--brand-2); }
 .ms b { font-size: 14px; } .ms span { font-size: 12px; color: var(--muted); } .ms em { font-style: normal; font-weight: 600; font-size: 13px; }
 .ms.dekat { border-left-color: var(--warn); } .ms.dekat em { color: var(--warn); }
 .ms.lewat { opacity: .6; border-left-color: var(--line); }
+.tl-b { display: flex; gap: 6px; flex: 0 0 auto; }

@@ -41,6 +41,10 @@ var TABLES = {
     sheet: 'Dokumen', key: 'id',
     cols: ['id', 'scope', 'nama', 'nomor', 'rev', 'status', 'target', 'tglSubmit', 'tglApprove', 'issue', 'pic', 'kode', 'link', 'riwayat', '_u', '_by', '_del', '_rev']
   },
+  tlEdit: { // koreksi tanggal aktivitas Timeline Schedule (id = id aktivitas di master.timeline)
+    sheet: 'TimelineEdit', key: 'id',
+    cols: ['id', 'mulai', 'selesai', 'catatan', '_u', '_by', '_del', '_rev']
+  },
   daily: {
     sheet: 'DailyLog', key: 'id',
     // tercapai & progress = kolom model lama (kosong); bobot & capaian (%) ditambah di akhir agar baris lama tetap sejajar

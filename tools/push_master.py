@@ -79,8 +79,8 @@ def main():
             (team.get("tasks") and not any("prio" in r for r in team["tasks"])) or "progress" not in team or "dokumen" not in team:
         sys.exit("Code.gs di Google masih versi lama (belum ada kolom bobot/capaian/prioritas/tabel Progress). Tempel Code.gs terbaru, "
                  "jalankan setup(), lalu Deploy > Manage deployments > Edit > Version: New version.")
-    if seed.get("timeline") and team.get("tasks") and not any("bl" in r for r in team["tasks"]):
-        sys.exit("Code.gs di Google belum punya kolom 'bl' (link task ke Timeline Schedule). Tempel Code.gs terbaru, "
+    if seed.get("timeline") and ("tlEdit" not in team or (team.get("tasks") and not any("bl" in r for r in team["tasks"]))):
+        sys.exit("Code.gs di Google belum punya kolom 'bl' / tab TimelineEdit (Timeline Schedule). Tempel Code.gs terbaru, "
                  "jalankan setup(), lalu Deploy > Manage deployments > Edit > Version: New version.")
     def same(a, b):
         return all(str(a.get(f) if a.get(f) is not None else "") == str(b.get(f) if b.get(f) is not None else "")
