@@ -193,6 +193,8 @@ function normalize(s) {
   s.tasks.forEach(normTask);
   s.progress = (s.progress || []).map(normProg);
   s.mpPlan = s.mpPlan || []; s.manpower = (s.manpower || []).map(normMp); s.dokumen = (s.dokumen || []).map(normDok);
+  // v22 ke bawah mengabaikan master.timeline tapi sudah mencatat versi master → tarik ulang master sekali
+  if (!Array.isArray(s.timeline)) { s.timeline = []; s.sync.masterVer = ''; }
   (s.daily || []).forEach(x => { // migrasi model lama tidak dihitung sebagai perubahan (agar baris yang dihapus tim tidak terkirim balik)
     const id = 'daily:' + x.id, sama = s.sync.h[id] === recHash(x);
     normDaily(x);
