@@ -508,6 +508,11 @@ const tlTasks = (a, w) => D.tasks.filter(t => t.bl === String(a.id) && (w == nul
 const tlKosong = w => tlAkt(w).filter(a => !tlTasks(a, w).length);
 const tlSlip = t => { const a = t.bl && tlById(t.bl); return a && t.selesai ? days(a.selesai, t.selesai) : null; }; // + = lebih lambat dari timeline
 const tlWeek = () => UI.week !== '' ? +UI.week : Math.min(weekOf(tgl()) + 1, D.meta.weeks.at(-1).w); // default: minggu depan (rapat komitmen)
+/* status aktivitas dibanding HARI INI (bukan minggu yang dipilih): belum mulai / berjalan / lewat */
+const tlSt = a => { const d = tgl(), n = days(d, a.mulai);
+  return a.mulai > d ? ` <span class="chip">mulai ${n === 1 ? 'besok' : n + ' hari lagi'} · ${fmt(a.mulai)}</span>`
+    : a.selesai < d ? ` <span class="chip bad">lewat target ${fmt(a.selesai)}</span>`
+    : ` <span class="chip warn">sedang berjalan</span>`; };
 const tlInfo = a => `${esc([a.lok, a.area].filter(Boolean).join(' · '))} · ${esc(a.dis)} · timeline ${fmt(a.mulai)} – ${fmt(a.selesai)}${a.ubah ? ` <span class="chip info" title="${esc(`Diubah ${a.ubah._by || ''}${a.ubah.catatan ? ': ' + a.ubah.catatan : ''}`)}">diubah · PDF ${fmt(a.asli.mulai)} – ${fmt(a.asli.selesai)}</span>` : ''}`;
 function tlGapCard(w) {
   const o = weekObj(w), akt = tlAkt(w), kosong = tlKosong(w), MAX = 25;
@@ -518,7 +523,7 @@ function tlGapCard(w) {
       ${ms.map(m => `<span class="chip bad">◆ ${esc(m.nama)}</span>`).join('')}</summary>
     <div class="bar" style="margin:8px 0"><button class="btn sm pri" data-act="tl-pick" data-w="${w}">Ambil dari timeline…</button>
       <span class="muted" style="font-size:13px">Pilih beberapa sekaligus; PIC & grid diisi setelahnya.</span></div>
-    ${kosong.slice(0, MAX).map(a => `<div class="tl-r"><span><b>${esc(a.nama)}</b>${a.mulai >= o.start ? ' <span class="chip info">mulai</span>' : ''}<small>${tlInfo(a)}</small></span>
+    ${kosong.slice(0, MAX).map(a => `<div class="tl-r"><span><b>${esc(a.nama)}</b>${tlSt(a)}<small>${tlInfo(a)}</small></span>
       <span class="tl-b"><button class="btn sm" data-act="tl-ubah" data-id="${esc(a.id)}" title="Ubah tanggal aktivitas timeline" aria-label="Ubah tanggal">✎</button><button class="btn sm" data-act="tl-add" data-id="${esc(a.id)}" data-w="${w}">+ Task</button></span></div>`).join('')}
     ${kosong.length > MAX ? `<p class="muted" style="font-size:13px">… ${kosong.length - MAX} lagi – pakai <b>Ambil dari timeline</b> (bisa disaring per area / disiplin).</p>` : ''}
   </details>`;
@@ -540,7 +545,7 @@ function tlPick(w) {
   <div class="bar" style="margin:2px 0 0"><button type="button" class="btn sm" data-act="tl-manual">+ Task manual (di luar timeline)</button><button type="button" class="btn sm" data-act="tl-all">Centang yang tampil & belum ada task</button><button type="button" class="btn sm" data-act="tl-none">Kosongkan</button><span class="muted" id="tl-n" style="font-size:13px"></span></div>
   <div class="pick" id="tl-pick">${akt.map(a => { const ada = tlTasks(a, w); return `<label class="pick-i" data-area="${esc(a.area)}" data-dis="${esc(a.dis)}" data-cari="${esc((a.nama + ' ' + (a.lok || '') + ' ' + (a.pek || '')).toLowerCase())}">
     <input type="checkbox" name="bl" value="${esc(a.id)}"${ada.length ? ' disabled' : ''}>
-    <span><b>${esc(a.nama)}</b>${ada.length ? ` <span class="chip ok">sudah: ${ada.map(t => esc(t.kode)).join(', ')}</span>` : ''}${a.mulai >= o.start ? ' <span class="chip info">mulai</span>' : ''}${a.selesai <= o.end ? ' <span class="chip warn">harus selesai</span>' : ''}
+    <span><b>${esc(a.nama)}</b>${ada.length ? ` <span class="chip ok">sudah: ${ada.map(t => esc(t.kode)).join(', ')}</span>` : ''}${tlSt(a)}${a.selesai <= o.end ? ' <span class="chip warn">harus selesai</span>' : ''}
     <small>${tlInfo(a)}<br>${a.pek ? esc(a.pek) : '<i>pekerjaan BOQ belum dipetakan</i>'}</small></span></label>`; }).join('') || '<p class="muted" style="padding:10px">Tidak ada aktivitas timeline di minggu ini.</p>'}</div>
   <p class="muted" style="font-size:13px;margin:6px 0 0">Task dibuat untuk <b>W${w}</b> (${fmt(o?.start)} – ${fmt(o?.end)}); tanggal dipotong ke minggu ini, aktivitas panjang diambil lagi minggu berikutnya. Status: belum dibahas.</p>
   <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Buat task</button></div>`,
