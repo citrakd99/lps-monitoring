@@ -298,3 +298,16 @@ select.prio-sel { width: auto; min-height: 30px; padding: 3px 8px; font-size: 12
 .dok-t tr.dok-grp small { margin-left: 6px; }
 .dok-t tr.dok-grp .cv { display: inline-block; width: 12px; color: var(--muted); }
 .dok-t tr.dok-sub td { font-size: 11px; font-weight: 600; letter-spacing: .03em; color: var(--muted); text-transform: uppercase; padding: 6px 8px 2px; cursor: default; }
+
+/* Timeline Schedule: celah komitmen, milestone */
+a.kpi { display: block; color: inherit; text-decoration: none; }
+a.kpi:hover { border-color: var(--brand-2); }
+.tl-gap summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tl-r { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.tl-r small, .pick-i small { display: block; color: var(--muted); font-size: 12px; }
+.tl-r .btn { flex: 0 0 auto; }
+.ms-l { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+.ms { border: 1px solid var(--line); border-left: 4px solid var(--info); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
+.ms b { font-size: 14px; } .ms span { font-size: 12px; color: var(--muted); } .ms em { font-style: normal; font-weight: 600; font-size: 13px; }
+.ms.dekat { border-left-color: var(--warn); } .ms.dekat em { color: var(--warn); }
+.ms.lewat { opacity: .6; border-left-color: var(--line); }

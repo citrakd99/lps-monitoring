@@ -119,9 +119,9 @@ async function fetchSeed() {
   if (!r.ok) throw new Error('seed.json tidak ditemukan');
   return r.json();
 }
-const MASTER_F = ['meta', 'pekerjaan', 'areas', 'areaMap', 'issues', 'penyebab', 'disiplin', 'source', 'exportedAt', 'mpPlan', 'dokSrc'];
+const MASTER_F = ['meta', 'pekerjaan', 'areas', 'areaMap', 'issues', 'penyebab', 'disiplin', 'source', 'exportedAt', 'mpPlan', 'dokSrc', 'timeline'];
 const blank = () => ({ meta: { project: '', tglUpdate: null, targetPPC: 0.8, weeks: [], scurve: [] }, pekerjaan: [], areas: [], areaMap: {},
-  issues: Object.fromEntries(KK.map(k => [k, []])), penyebab: [], disiplin: ['CSA', 'MEP', 'ARS', 'PRELIM'], tasks: [], daily: [], progress: [], mpPlan: [], manpower: [], dokumen: [] });
+  issues: Object.fromEntries(KK.map(k => [k, []])), penyebab: [], disiplin: ['CSA', 'MEP', 'ARS', 'PRELIM'], tasks: [], daily: [], progress: [], mpPlan: [], manpower: [], dokumen: [], timeline: [] });
 const hasMaster = () => D.meta.weeks.length > 0;
 function applyMaster(m) { // jadwal & referensi diganti; task, daily log, target PPC lokal dipertahankan
   const ppc = hasMaster() ? D.meta.targetPPC : m.meta.targetPPC;
@@ -149,6 +149,7 @@ function normTask(t) {
   TXT_T.forEach(f => { t[f] = t[f] ?? ''; });
   t.minggu = +t.minggu || 0; t.mulai = t.mulai || null; t.selesai = t.selesai || null;
   t.inLPS = t.inLPS === true || t.inLPS === 'TRUE';
+  if (t.bl == null || t.bl === '') delete t.bl; else t.bl = String(t.bl); // id aktivitas Timeline Schedule
   return t;
 }
 /* actual progress mingguan (input manual): aktual = kumulatif proyek s/d minggu w (%) */
@@ -240,6 +241,7 @@ function applyRemote(res, force) {
     delete r._del; delete r._rev;
     if (!force && S.dirty[id]) { const l = localRec(id); if (l && (l.r._u || '') > (r._u || '')) continue; } // lokal lebih baru → dikirim nanti
     const arr = D[t], i = arr.findIndex(x => String(x[key]) === String(r[key]));
+    if (t === 'tasks' && !del && !('bl' in r) && i >= 0 && arr[i].bl) r.bl = arr[i].bl;
     if (t === 'tasks' && !del && !('prio' in r)) { PRIO_T.forEach(f => { r[f] = i >= 0 ? arr[i][f] : ''; }); oldGas = true; }
     if (del) { if (i >= 0) { arr.splice(i, 1); n++; } delete S.h[id]; }
     else {
@@ -373,9 +375,11 @@ function vDash() {
     <div class="kpi ${pd.ppc == null ? '' : pd.ppc >= tgt ? 'ok' : 'bad'}"><b>${pct(pd.ppc)}</b><span>PPC hari ini · ${pd.ya}/${pd.n} janji</span></div>
     <div class="kpi ${fu.some(t => t.prio === 'Urgent') ? 'bad' : fu.length ? 'warn' : ''}"><b>${fu.length}</b><span>Perlu follow up (urgent / tinggi / koordinasi)</span></div>
     ${D.mpPlan.length ? (() => { const W = mpWeek(cw), a = mpHari(tgl()), ada = D.mpPlan.some(i => mpAkt(tgl(), i.id) != null); return `<div class="kpi ${!ada ? '' : a >= W.plan ? 'ok' : 'bad'}"><b>${ada ? a : '–'}<small class="muted" style="font-size:13px"> / ${W.plan}</small></b><span>Manpower hari ini / rencana W${cw}</span></div>`; })() : ''}
+    ${TL().length ? (() => { const w = tlWeek(), k = tlKosong(w).length; return `<a class="kpi ${k ? 'warn' : 'ok'}" href="#komit" data-act="tl-goto" data-w="${w}"><b>${k}<small class="muted" style="font-size:13px"> / ${tlAkt(w).length}</small></b><span>Aktivitas timeline W${w} belum ada task komitmen →</span></a>`; })() : ''}
     ${(() => { const A = allDok(); return A.length ? `<div class="kpi ${A.some(lewatDok) ? 'bad' : 'warn'}"><b>${A.filter(x => x.status !== 'Approved').length}</b><span>Dokumen belum approve · ${A.filter(lewatDok).length} lewat target</span></div>` : ''; })()}
   </div>
 
+  ${msCard()}
   ${fu.length ? `<div class="card">
     <h3>Task prioritas & koordinasi disiplin</h3>
     ${fu.slice(0, 8).map(t => `<div style="padding:6px 0;border-bottom:1px solid var(--line)">
@@ -479,17 +483,98 @@ function vJadwal() {
         <div class="sub">${esc(p.bill)}${p.area ? ' · ' + esc(p.area) : ''}</div></div>
         <div class="chips"><span class="chip">${esc(p.disiplin)}</span>${stChip(stJadwal(p))}</div></div>
       <div class="meta"><span>${fmt(p.mulai)} → ${fmt(p.selesai)}</span><span>W${weekOf(p.mulai) ?? '–'}–W${weekOf(p.selesai) ?? '–'}</span><span>Bobot ${p.bobot.toFixed(2)}%</span>
-        <span>Task ${ts.length} · sepakat ${ok.length} · finish ${fin}${ok.length ? ' (' + pct(fin / ok.length) + ')' : ''}</span></div>
+        <span>Task ${ts.length} · sepakat ${ok.length} · finish ${fin}${ok.length ? ' (' + pct(fin / ok.length) + ')' : ''}</span>${(() => { const A = TL().filter(a => a.pek === p.nama); return A.length ? `<span>⏱ timeline ${A.length} aktivitas · ${fmt(A.reduce((m, a) => a.mulai < m ? a.mulai : m, A[0].mulai))} → ${fmt(A.reduce((m, a) => a.selesai > m ? a.selesai : m, A[0].selesai))}</span>` : ''; })()}</div>
       <div style="margin-top:8px"><button class="btn sm" data-act="task-new" data-pek="${esc(p.nama)}">+ Task komitmen</button></div>
     </div>`;
   }).join('') || '<div class="empty">Tidak ada pekerjaan pada filter ini.</div>'}`;
 }
 
+/* ---------- TIMELINE SCHEDULE: bank aktivitas (PDF MS Project → tools/export_timeline.py → master.timeline) ----------
+   Task komitmen diambil dari aktivitas yang aktif di minggu itu: 1 task per aktivitas per minggu (tanggal dipotong ke minggu),
+   task menyimpan bl = id aktivitas agar celah komitmen & selisih terhadap timeline bisa dihitung. */
+const TL = () => D.timeline || [];
+const tlById = id => TL().find(a => String(a.id) === String(id));
+const tlAkt = w => { const o = weekObj(w); return o ? TL().filter(a => !a.ms && a.mulai <= o.end && a.selesai >= o.start) : []; };
+const tlTasks = (a, w) => D.tasks.filter(t => t.bl === String(a.id) && (w == null || +t.minggu === +w));
+const tlKosong = w => tlAkt(w).filter(a => !tlTasks(a, w).length);
+const tlSlip = t => { const a = t.bl && tlById(t.bl); return a && t.selesai ? days(a.selesai, t.selesai) : null; }; // + = lebih lambat dari timeline
+const tlWeek = () => UI.week !== '' ? +UI.week : Math.min(weekOf(tgl()) + 1, D.meta.weeks.at(-1).w); // default: minggu depan (rapat komitmen)
+const tlInfo = a => `${esc([a.lok, a.area].filter(Boolean).join(' · '))} · ${esc(a.dis)} · timeline ${fmt(a.mulai)} – ${fmt(a.selesai)}`;
+function tlGapCard(w) {
+  const o = weekObj(w), akt = tlAkt(w), kosong = tlKosong(w), MAX = 25;
+  const ms = TL().filter(a => a.ms && a.mulai >= o.start && a.mulai <= o.end);
+  return `<details class="card tl-gap"${kosong.length && kosong.length <= 15 ? ' open' : ''}>
+    <summary>Timeline W${w}: ${akt.length} aktivitas aktif · <span class="chip ${kosong.length ? 'warn' : 'ok'}">${kosong.length} belum ada task</span>
+      ${kosong.filter(a => a.mulai >= o.start).length ? `<span class="chip info">${kosong.filter(a => a.mulai >= o.start).length} mulai minggu ini</span>` : ''}
+      ${ms.map(m => `<span class="chip bad">◆ ${esc(m.nama)}</span>`).join('')}</summary>
+    <div class="bar" style="margin:8px 0"><button class="btn sm pri" data-act="tl-pick" data-w="${w}">Ambil dari timeline…</button>
+      <span class="muted" style="font-size:13px">Pilih beberapa sekaligus; PIC & grid diisi setelahnya.</span></div>
+    ${kosong.slice(0, MAX).map(a => `<div class="tl-r"><span><b>${esc(a.nama)}</b>${a.mulai >= o.start ? ' <span class="chip info">mulai</span>' : ''}<small>${tlInfo(a)}</small></span>
+      <button class="btn sm" data-act="tl-add" data-id="${esc(a.id)}" data-w="${w}">+ Task</button></div>`).join('')}
+    ${kosong.length > MAX ? `<p class="muted" style="font-size:13px">… ${kosong.length - MAX} lagi – pakai <b>Ambil dari timeline</b> (bisa disaring per area / disiplin).</p>` : ''}
+  </details>`;
+}
+function tlPick(w) {
+  w = +w;
+  const cw = weekOf(tgl()), o = weekObj(w);
+  const akt = tlAkt(w).sort((a, b) => a.area.localeCompare(b.area) || a.mulai.localeCompare(b.mulai));
+  const areas = [...new Set(akt.map(a => a.area))].sort();
+  openDlg(`<h3>Ambil task dari Timeline Schedule</h3>
+  <div class="frow">
+    <label class="f">Minggu<select id="tl-w">${D.meta.weeks.map(x => opt(x.w, w, `W${x.w} · ${x.label}${x.w === cw ? ' (ini)' : ''} · ${tlKosong(x.w).length} belum`)).join('')}</select></label>
+    <label class="f">Area<select id="tl-area">${opt('', '', 'Semua area')}${areas.map(a => opt(a, '')).join('')}</select></label>
+  </div>
+  <div class="frow">
+    <label class="f">Disiplin<select id="tl-dis">${opt('', '', 'Semua disiplin')}${D.disiplin.map(d => opt(d, '')).join('')}</select></label>
+    <label class="f">Cari<input type="search" id="tl-cari" placeholder="aktivitas / lokasi / pekerjaan"></label>
+  </div>
+  <div class="bar" style="margin:2px 0 0"><button type="button" class="btn sm" data-act="tl-manual">+ Task manual (di luar timeline)</button><button type="button" class="btn sm" data-act="tl-all">Centang yang tampil & belum ada task</button><button type="button" class="btn sm" data-act="tl-none">Kosongkan</button><span class="muted" id="tl-n" style="font-size:13px"></span></div>
+  <div class="pick" id="tl-pick">${akt.map(a => { const ada = tlTasks(a, w); return `<label class="pick-i" data-area="${esc(a.area)}" data-dis="${esc(a.dis)}" data-cari="${esc((a.nama + ' ' + (a.lok || '') + ' ' + (a.pek || '')).toLowerCase())}">
+    <input type="checkbox" name="bl" value="${esc(a.id)}"${ada.length ? ' disabled' : ''}>
+    <span><b>${esc(a.nama)}</b>${ada.length ? ` <span class="chip ok">sudah: ${ada.map(t => esc(t.kode)).join(', ')}</span>` : ''}${a.mulai >= o.start ? ' <span class="chip info">mulai</span>' : ''}${a.selesai <= o.end ? ' <span class="chip warn">harus selesai</span>' : ''}
+    <small>${tlInfo(a)}<br>${a.pek ? esc(a.pek) : '<i>pekerjaan BOQ belum dipetakan</i>'}</small></span></label>`; }).join('') || '<p class="muted" style="padding:10px">Tidak ada aktivitas timeline di minggu ini.</p>'}</div>
+  <p class="muted" style="font-size:13px;margin:6px 0 0">Task dibuat untuk <b>W${w}</b> (${fmt(o?.start)} – ${fmt(o?.end)}); tanggal dipotong ke minggu ini, aktivitas panjang diambil lagi minggu berikutnya. Status: belum dibahas.</p>
+  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Buat task</button></div>`,
+  fd => { const n = tlBuat(fd.getAll('bl'), w); if (n) { UI.week = String(w); location.hash === '#komit' ? render() : (location.hash = 'komit'); } });
+  tlFilter();
+}
+function tlFilter() {
+  const q = ($('#tl-cari')?.value || '').toLowerCase().trim(), ar = $('#tl-area')?.value, di = $('#tl-dis')?.value;
+  let n = 0;
+  document.querySelectorAll('#tl-pick .pick-i').forEach(l => { l.hidden = (!!q && !l.dataset.cari.includes(q)) || (!!ar && l.dataset.area !== ar) || (!!di && l.dataset.dis !== di); if (!l.hidden) n++; });
+  const c = document.querySelectorAll('#tl-pick input:checked').length;
+  if ($('#tl-n')) $('#tl-n').textContent = `${n} tampil · ${c} dicentang`;
+}
+function tlBuat(ids, w) {
+  const o = weekObj(w);
+  if (!ids.length || !o) { toast('Belum ada aktivitas yang dicentang'); return 0; }
+  const baru = [];
+  ids.forEach(id => {
+    const a = tlById(id);
+    if (!a || tlTasks(a, w).length) return;
+    const t = normTask({ kode: nextKode(), minggu: +w, disiplin: a.dis, pekerjaan: a.pek || '', area: D.areas.includes(a.area) ? a.area : '', uraian: a.nama,
+      lokasi: a.lok || '', pic: '', mulai: a.mulai > o.start ? a.mulai : o.start, selesai: a.selesai < o.end ? a.selesai : o.end,
+      disepakati: '', alasan: '', inLPS: false, k: blankK(), catatanKendala: '', penyebabTerlambat: '', prio: '', koord: '', followup: '', bl: String(a.id) });
+    D.tasks.push(t); baru.push(t);
+  });
+  save(); toast(`${baru.length} task dibuat dari timeline untuk W${w}`);
+  return baru;
+}
+const tlChip = t => { const a = t.bl && tlById(t.bl); if (!a) return ''; const s = tlSlip(t);
+  return `<span title="Aktivitas Timeline Schedule">⏱ timeline ${fmt(a.mulai)} – ${fmt(a.selesai)}</span>${s > 0 ? `<span class="chip bad">+${s} hr dari timeline</span>` : ''}`; };
+function msCard() {
+  const M = TL().filter(a => a.ms && days(tgl(), a.mulai) >= -7).sort((a, b) => a.mulai.localeCompare(b.mulai)); // yang lewat > 7 hari disembunyikan
+  if (!M.length) return '';
+  const now = tgl();
+  return `<div class="card"><h3>Milestone (Timeline Schedule)</h3><div class="ms-l">${M.map(m => { const d = days(now, m.mulai);
+    return `<div class="ms ${d < 0 ? 'lewat' : d <= 30 ? 'dekat' : ''}"><b>${esc(m.nama)}</b><span>${fmt(m.mulai)}${weekOf(m.mulai) != null ? ' · W' + weekOf(m.mulai) : ''}</span><em>${d < 0 ? 'lewat ' + -d + ' hari' : d === 0 ? 'hari ini' : d + ' hari lagi'}</em></div>`; }).join('')}</div></div>`;
+}
+
 /* ---------- KOMITMEN ---------- */
 function vKomit() {
   const ts = D.tasks.filter(inWeek).filter(prioOK).sort((a, b) => byPrio(a, b) || a.minggu - b.minggu || a.kode.localeCompare(b.kode));
-  let gap = '';
-  if (UI.week !== '') {
+  let gap = TL().length ? tlGapCard(tlWeek()) : '';
+  if (!TL().length && UI.week !== '') {
     const w = weekObj(UI.week);
     const aktif = D.pekerjaan.filter(p => p.mulai && w && p.mulai <= w.end && p.selesai >= w.start);
     const kosong = aktif.filter(p => !D.tasks.some(t => t.pekerjaan === p.nama && +t.minggu === +UI.week));
@@ -508,7 +593,7 @@ function vKomit() {
       <div class="hd"><div><span class="code">${esc(t.kode)}</span> <span class="ttl">${esc(t.uraian || '(tanpa uraian)')}</span>
         <div class="sub">${esc(t.pekerjaan)}</div></div>
         <div class="chips">${prioChips(t)}<span class="chip">W${t.minggu}</span><span class="chip">${esc(t.disiplin)}</span></div></div>
-      <div class="meta"><span>${esc(t.area)}${t.lokasi ? ' · ' + esc(t.lokasi) : ''}</span><span>PIC ${esc(t.pic || '–')}</span><span>${fmt(t.mulai)} → ${fmt(t.selesai)}${t.mulai && t.selesai ? ' (' + (days(t.mulai, t.selesai) + 1) + ' hr)' : ''}</span></div>
+      <div class="meta"><span>${esc(t.area)}${t.lokasi ? ' · ' + esc(t.lokasi) : ''}</span><span>PIC ${esc(t.pic || '–')}</span><span>${fmt(t.mulai)} → ${fmt(t.selesai)}${t.mulai && t.selesai ? ' (' + (days(t.mulai, t.selesai) + 1) + ' hr)' : ''}</span>${tlChip(t)}</div>
       <div class="bar" style="margin:10px 0 0">
         <span class="seg">
           <button type="button" data-act="sepakat" data-kode="${esc(t.kode)}" data-v="Ya" class="${t.disepakati === 'Ya' ? 'on-ok' : ''}">Disepakati</button>
@@ -522,7 +607,7 @@ function vKomit() {
       ${fuNote(t)}
       ${t.disepakati === 'Tidak' ? `<input type="text" style="margin-top:8px" placeholder="Alasan ditunda / catatan rapat" value="${esc(t.alasan)}" data-f="task|${esc(t.kode)}|alasan" class="${t.alasan ? '' : 'need'}">` : ''}
     </div>`).join('') || '<div class="empty">Belum ada task untuk filter ini. Tekan <b>+ Task</b>.</div>'}
-  <button class="btn pri fab" data-act="task-new">+ Task</button>`;
+  <button class="btn pri fab" data-act="${TL().length ? 'tl-pick' : 'task-new'}" data-w="${TL().length ? tlWeek() : ''}">+ Task</button>`;
 }
 
 function taskForm(t, isNew) {
@@ -1264,7 +1349,7 @@ let dlgSubmit = null;
 function openDlg(html, onSave) {
   $('#dlg-form').innerHTML = html;
   dlgSubmit = onSave;
-  $('#dlg').showModal();
+  if (!$('#dlg').open) $('#dlg').showModal();
 }
 $('#dlg').addEventListener('close', () => {
   const dlg = $('#dlg');
@@ -1412,6 +1497,12 @@ document.addEventListener('click', e => {
       break;
     }
     case 'pdf-jadwal': openDlg(pdfJadwalForm(), fd => printJadwal({ from: fd.get('from'), look: fd.get('look'), dis: fd.get('dis'), grp: fd.get('grp'), task: fd.has('task') })); break;
+    case 'tl-pick': tlPick(el.dataset.w || tlWeek()); break;
+    case 'tl-add': { const t = tlBuat([el.dataset.id], +el.dataset.w)[0]; if (t) { render(); editTask({ ...t }, false); } break; }
+    case 'tl-all': document.querySelectorAll('#tl-pick .pick-i:not([hidden]) input:not(:disabled)').forEach(c => { c.checked = true; }); tlFilter(); break;
+    case 'tl-none': document.querySelectorAll('#tl-pick input:checked').forEach(c => { c.checked = false; }); tlFilter(); break;
+    case 'tl-manual': { const w = $('#tl-w')?.value; if (w != null) UI.week = w; newTask(); break; } // isi dialog diganti form task biasa
+    case 'tl-goto': UI.week = el.dataset.w; if (UI.view === 'komit') render(); break;
     case 'task-new': newTask(el.dataset.pek); break;
     case 'task-edit': editTask({ ...task }, false); break;
     case 'task-del':
@@ -1499,6 +1590,8 @@ document.addEventListener('change', e => {
     else if (r) r.aktual = v; else D.manpower.push({ id, tgl: d, item: el.dataset.mp, aktual: v, catatan: '' });
     save(); render(); return;
   }
+  if (el.id === 'tl-w') { tlPick(el.value); return; }
+  if (el.closest?.('#tl-pick') || el.id === 'tl-area' || el.id === 'tl-dis') { tlFilter(); return; }
   if (el.name === 'kode' && el.closest('#jr-pick')) { $('#jr-info').innerHTML = jrInfo(el.value); return; }
   if (!el.dataset.f) return;
   const [kind, id, path] = el.dataset.f.split('|');
@@ -1516,6 +1609,7 @@ document.addEventListener('change', e => {
 });
 // Pencarian langsung saat mengetik
 document.addEventListener('input', e => {
+  if (e.target.id === 'tl-cari') { tlFilter(); return; }
   if (e.target.id === 'jr-cari') { // saring daftar task di dialog janji
     const q = e.target.value.toLowerCase().trim();
     document.querySelectorAll('#jr-pick .pick-i').forEach(l => { l.hidden = !!q && !l.dataset.cari.includes(q); });
