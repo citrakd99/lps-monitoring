@@ -5,7 +5,7 @@ Pemakaian (setelah export_excel.py):
     python push_master.py <URL_WEB_APP_/exec> <KODE_AKSES> [seed.json] [--nama "Admin"] [--dok-link "LINK_GOOGLE_SHEET_DOKUMEN"]
 
 Yang dikirim:
-  - master  : meta (minggu, kurva-S), pekerjaan, area, daftar issue, penyebab  → tab Master (ditimpa)
+  - master  : meta (minggu, kurva-S), pekerjaan, area, daftar issue, penyebab, timeline (export_timeline.py)  → tab Master (ditimpa)
   - tasks dari Excel yang BELUM ada di Sheet (task di Sheet tidak ditimpa)
   - daily log dari Excel: baris baru ditambah, baris dari Excel yang isinya berubah diperbarui (Excel menang
     untuk baris asal Excel; baris yang dibuat di aplikasi tidak disentuh). Baris ekspor model lama (id d1, d2, …) dihapus.
@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 DAILY_F = ["tgl", "kode", "target", "bobot", "capaian", "penyebab", "catatan"]
-MASTER_F = ["mpPlan", "meta", "pekerjaan", "areas", "areaMap", "issues", "penyebab", "disiplin", "source", "exportedAt"]
+MASTER_F = ["mpPlan", "meta", "pekerjaan", "areas", "areaMap", "issues", "penyebab", "disiplin", "source", "exportedAt", "timeline"]
 
 
 def post(url, body):
@@ -79,6 +79,9 @@ def main():
             (team.get("tasks") and not any("prio" in r for r in team["tasks"])) or "progress" not in team or "dokumen" not in team:
         sys.exit("Code.gs di Google masih versi lama (belum ada kolom bobot/capaian/prioritas/tabel Progress). Tempel Code.gs terbaru, "
                  "jalankan setup(), lalu Deploy > Manage deployments > Edit > Version: New version.")
+    if seed.get("timeline") and team.get("tasks") and not any("bl" in r for r in team["tasks"]):
+        sys.exit("Code.gs di Google belum punya kolom 'bl' (link task ke Timeline Schedule). Tempel Code.gs terbaru, "
+                 "jalankan setup(), lalu Deploy > Manage deployments > Edit > Version: New version.")
     def same(a, b):
         return all(str(a.get(f) if a.get(f) is not None else "") == str(b.get(f) if b.get(f) is not None else "")
                    or (f in ("bobot", "capaian") and a.get(f) not in (None, "") and b.get(f) not in (None, "")
@@ -102,6 +105,8 @@ def main():
     print(f"Daily log: {n_new} baru, {len(body['daily']) - n_new - len(old)} diperbarui dari Excel, {len(old)} baris model lama dihapus.")
     if body["progress"]:
         print(f"Actual progress mingguan dari Excel: {len(body['progress'])} minggu diperbarui.")
+    if body["master"].get("timeline"):
+        print(f"Timeline Schedule: {len(body['master']['timeline'])} aktivitas (bank task komitmen).")
     if body["master"]["dokSrc"]:
         print("Link log dokumen Drive: " + ("diperbarui" if dok_link is not None else "tetap") + " (aplikasi membacanya langsung, hanya baca).")
     if res.get("skipped"):

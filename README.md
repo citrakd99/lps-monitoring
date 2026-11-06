@@ -13,6 +13,12 @@ Aplikasi ringan (PWA, bisa di-install di HP, jalan offline) untuk monitoring Kom
    python tools/push_master.py <URL_WEB_APP_/exec> <KODE_AKSES> --nama "Admin"
    ```
    HP mengambil jadwal baru otomatis pada sinkron berikutnya.
+   Timeline Schedule (PDF dari MS Project) sebagai bank task komitmen: jalankan setelah `export_excel.py`, sebelum `push_master.py`.
+   File peta (`--peta`) dibuat/diperbarui untuk ditinjau; isi kolom Koreksi bila pemetaan ke pekerjaan BOQ salah, lalu jalankan ulang:
+   ```bash
+   python tools/export_timeline.py "Timeline Schedule - ....pdf" --peta "MAPPING Timeline PDF ke Task Komitmen.xlsx"
+   ```
+   Butuh Code.gs terbaru (kolom `bl` di tab Tasks).
    Log dokumen dibaca aplikasi langsung dari Google Sheet di Drive (hanya baca). Atur link-nya sekali untuk seluruh tim
    (akses link: "Siapa saja yang memiliki link" – Pelihat); link disimpan di Sheet tim, bukan di repo publik:
    ```bash

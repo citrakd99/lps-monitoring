@@ -27,6 +27,7 @@ var TABLES = {
       .concat(KAT.reduce(function (a, k) { return a.concat(KFIELD.map(function (f) { return 'k.' + k + '.' + f; })); }, []))
       .concat(['catatanKendala', 'penyebabTerlambat', 'inLPS', '_u', '_by', '_del', '_rev'])
       .concat(['prio', 'koord', 'followup']) // prioritas: ditambah di akhir agar baris lama tetap sejajar
+      .concat(['bl']) // id aktivitas Timeline Schedule (task diambil dari timeline)
   },
   progress: { // actual progress mingguan (kumulatif proyek, input manual)
     sheet: 'Progress', key: 'w',

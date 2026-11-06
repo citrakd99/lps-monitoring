@@ -180,6 +180,13 @@ def export(xlsx, out):
         "mpPlan": export_mp(Path(xlsx).with_name("Man Power Tracking.xlsx")),
         "dokumen": export_dok(Path(xlsx).with_name("dokument tracking.xlsx")),
     }
+    if Path(out).exists():  # timeline (export_timeline.py) dipertahankan; jalankan ulang itu bila daftar pekerjaan berubah
+        try:
+            tl = json.loads(Path(out).read_text(encoding="utf-8")).get("timeline")
+        except ValueError:
+            tl = None
+        if tl:
+            seed["timeline"] = tl
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     Path(out).write_text(json.dumps(seed, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"OK → {out}: {len(weeks)} minggu, {len(pekerjaan)} pekerjaan, {len(tasks)} task, {len(daily)} daily log, "
