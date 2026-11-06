@@ -121,7 +121,7 @@ async function fetchSeed() {
 }
 const MASTER_F = ['meta', 'pekerjaan', 'areas', 'areaMap', 'issues', 'penyebab', 'disiplin', 'source', 'exportedAt', 'mpPlan', 'dokSrc', 'timeline'];
 const blank = () => ({ meta: { project: '', tglUpdate: null, targetPPC: 0.8, weeks: [], scurve: [] }, pekerjaan: [], areas: [], areaMap: {},
-  issues: Object.fromEntries(KK.map(k => [k, []])), penyebab: [], disiplin: ['CSA', 'MEP', 'ARS', 'PRELIM'], tasks: [], daily: [], progress: [], mpPlan: [], manpower: [], dokumen: [], timeline: [] });
+  issues: Object.fromEntries(KK.map(k => [k, []])), penyebab: [], disiplin: ['CSA', 'MEP', 'ARS', 'PRELIM'], tasks: [], daily: [], progress: [], mpPlan: [], manpower: [], dokumen: [], timeline: [], tlEdit: [] });
 const hasMaster = () => D.meta.weeks.length > 0;
 function applyMaster(m) { // jadwal & referensi diganti; task, daily log, target PPC lokal dipertahankan
   const ppc = hasMaster() ? D.meta.targetPPC : m.meta.targetPPC;
@@ -195,6 +195,7 @@ function normalize(s) {
   s.mpPlan = s.mpPlan || []; s.manpower = (s.manpower || []).map(normMp); s.dokumen = (s.dokumen || []).map(normDok);
   // v22 ke bawah mengabaikan master.timeline tapi sudah mencatat versi master → tarik ulang master sekali
   if (!Array.isArray(s.timeline)) { s.timeline = []; s.sync.masterVer = ''; }
+  s.tlEdit = (s.tlEdit || []).map(normTlE);
   (s.daily || []).forEach(x => { // migrasi model lama tidak dihitung sebagai perubahan (agar baris yang dihapus tim tidak terkirim balik)
     const id = 'daily:' + x.id, sama = s.sync.h[id] === recHash(x);
     normDaily(x);
@@ -205,12 +206,12 @@ function normalize(s) {
 function persist() {
   try { localStorage.setItem(KEY, JSON.stringify(D)); } catch (e) { toast('Gagal menyimpan: ' + e.message); }
 }
-function save() { stamp(); persist(); scheduleSync(); }
+function save() { TLc = null; stamp(); persist(); scheduleSync(); }
 
 /* ---------- sinkron tim (Google Sheets via Apps Script, lihat gas/Code.gs) ----------
    Setiap record (task / daily log) diberi _u (waktu ubah) & _by (nama). Perubahan dideteksi dengan
    membandingkan hash isi record, jadi semua aksi cukup memanggil save(). Konflik: _u terbaru menang. */
-const TBL = { tasks: 'kode', daily: 'id', progress: 'w', manpower: 'id', dokumen: 'id' };
+const TBL = { tasks: 'kode', daily: 'id', progress: 'w', manpower: 'id', dokumen: 'id', tlEdit: 'id' };
 const canon = v => Array.isArray(v) ? '[' + v.map(canon).join(',') + ']'
   : v && typeof v === 'object' ? '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + canon(v[k])).join(',') + '}' : JSON.stringify(v ?? null);
 const recHash = r => { const { _u, _by, ...rest } = r; return canon(rest); };
@@ -247,7 +248,7 @@ function applyRemote(res, force) {
     if (t === 'tasks' && !del && !('prio' in r)) { PRIO_T.forEach(f => { r[f] = i >= 0 ? arr[i][f] : ''; }); oldGas = true; }
     if (del) { if (i >= 0) { arr.splice(i, 1); n++; } delete S.h[id]; }
     else {
-      const rec = ({ tasks: normTask, daily: normDaily, progress: normProg, manpower: normMp, dokumen: normDok })[t](r), h = recHash(rec);
+      const rec = ({ tasks: normTask, daily: normDaily, progress: normProg, manpower: normMp, dokumen: normDok, tlEdit: normTlE })[t](r), h = recHash(rec);
       if (S.h[id] !== h) n++;
       if (i >= 0) arr[i] = rec; else arr.push(rec);
       S.h[id] = h;
@@ -336,6 +337,7 @@ function vSetup() { // belum ada jadwal: aplikasi publik sebelum terhubung ke Sh
 }
 
 function render() {
+  TLc = null;
   document.querySelector('.wk').hidden = !hasMaster();
   if (!hasMaster()) {
     $('#hdr-sub').textContent = 'Belum terhubung'; $('#f-week').innerHTML = ''; $('#issue-badge').hidden = true;
@@ -494,14 +496,19 @@ function vJadwal() {
 /* ---------- TIMELINE SCHEDULE: bank aktivitas (PDF MS Project → tools/export_timeline.py → master.timeline) ----------
    Task komitmen diambil dari aktivitas yang aktif di minggu itu: 1 task per aktivitas per minggu (tanggal dipotong ke minggu),
    task menyimpan bl = id aktivitas agar celah komitmen & selisih terhadap timeline bisa dihitung. */
-const TL = () => D.timeline || [];
+function normTlE(x) { x.id = String(x.id); x.catatan = x.catatan ?? ''; return x; }
+let TLc = null; // timeline efektif, dihitung ulang tiap render / simpan
+const TL = () => TLc || (TLc = (() => {
+  const E = Object.fromEntries((D.tlEdit || []).map(e => [e.id, e]));
+  return (D.timeline || []).map(a => { const e = E[String(a.id)]; return e ? { ...a, mulai: e.mulai || a.mulai, selesai: e.selesai || a.selesai, asli: { mulai: a.mulai, selesai: a.selesai }, ubah: e } : a; });
+})());
 const tlById = id => TL().find(a => String(a.id) === String(id));
 const tlAkt = w => { const o = weekObj(w); return o ? TL().filter(a => !a.ms && a.mulai <= o.end && a.selesai >= o.start) : []; };
 const tlTasks = (a, w) => D.tasks.filter(t => t.bl === String(a.id) && (w == null || +t.minggu === +w));
 const tlKosong = w => tlAkt(w).filter(a => !tlTasks(a, w).length);
 const tlSlip = t => { const a = t.bl && tlById(t.bl); return a && t.selesai ? days(a.selesai, t.selesai) : null; }; // + = lebih lambat dari timeline
 const tlWeek = () => UI.week !== '' ? +UI.week : Math.min(weekOf(tgl()) + 1, D.meta.weeks.at(-1).w); // default: minggu depan (rapat komitmen)
-const tlInfo = a => `${esc([a.lok, a.area].filter(Boolean).join(' · '))} · ${esc(a.dis)} · timeline ${fmt(a.mulai)} – ${fmt(a.selesai)}`;
+const tlInfo = a => `${esc([a.lok, a.area].filter(Boolean).join(' · '))} · ${esc(a.dis)} · timeline ${fmt(a.mulai)} – ${fmt(a.selesai)}${a.ubah ? ` <span class="chip info" title="${esc(`Diubah ${a.ubah._by || ''}${a.ubah.catatan ? ': ' + a.ubah.catatan : ''}`)}">diubah · PDF ${fmt(a.asli.mulai)} – ${fmt(a.asli.selesai)}</span>` : ''}`;
 function tlGapCard(w) {
   const o = weekObj(w), akt = tlAkt(w), kosong = tlKosong(w), MAX = 25;
   const ms = TL().filter(a => a.ms && a.mulai >= o.start && a.mulai <= o.end);
@@ -512,7 +519,7 @@ function tlGapCard(w) {
     <div class="bar" style="margin:8px 0"><button class="btn sm pri" data-act="tl-pick" data-w="${w}">Ambil dari timeline…</button>
       <span class="muted" style="font-size:13px">Pilih beberapa sekaligus; PIC & grid diisi setelahnya.</span></div>
     ${kosong.slice(0, MAX).map(a => `<div class="tl-r"><span><b>${esc(a.nama)}</b>${a.mulai >= o.start ? ' <span class="chip info">mulai</span>' : ''}<small>${tlInfo(a)}</small></span>
-      <button class="btn sm" data-act="tl-add" data-id="${esc(a.id)}" data-w="${w}">+ Task</button></div>`).join('')}
+      <span class="tl-b"><button class="btn sm" data-act="tl-ubah" data-id="${esc(a.id)}" title="Ubah tanggal aktivitas timeline" aria-label="Ubah tanggal">✎</button><button class="btn sm" data-act="tl-add" data-id="${esc(a.id)}" data-w="${w}">+ Task</button></span></div>`).join('')}
     ${kosong.length > MAX ? `<p class="muted" style="font-size:13px">… ${kosong.length - MAX} lagi – pakai <b>Ambil dari timeline</b> (bisa disaring per area / disiplin).</p>` : ''}
   </details>`;
 }
@@ -547,6 +554,29 @@ function tlFilter() {
   const c = document.querySelectorAll('#tl-pick input:checked').length;
   if ($('#tl-n')) $('#tl-n').textContent = `${n} tampil · ${c} dicentang`;
 }
+function tlUbah(id) {
+  const a = tlById(id), o = (D.timeline || []).find(x => String(x.id) === String(id)), e = D.tlEdit.find(x => x.id === String(id));
+  if (!a || !o) return;
+  const ts = tlTasks(a);
+  openDlg(`<h3>Ubah tanggal aktivitas timeline</h3>
+  <p style="margin:0 0 4px"><b>${esc(a.nama)}</b><br><small class="muted">${esc([a.lok, a.area, a.dis].filter(Boolean).join(' · '))}</small></p>
+  <p class="muted" style="font-size:13px">Tanggal di PDF: <b>${fmt(o.mulai)} – ${fmt(o.selesai)}</b>${e ? ` · terakhir diubah ${esc(e._by || '')}` : ''}. Perubahan berlaku untuk seluruh tim (daftar celah, lookahead, selisih task).</p>
+  <div class="frow">
+    <label class="f">Mulai<input type="date" name="mulai" value="${esc(a.mulai)}" required></label>
+    <label class="f">Selesai<input type="date" name="selesai" value="${esc(a.selesai)}" required></label>
+  </div>
+  <label class="f">Alasan / catatan<input type="text" name="catatan" value="${esc(e?.catatan || '')}" placeholder="mis. ikut jadwal aktual, revisi MS Project"></label>
+  ${ts.length ? `<p class="muted" style="font-size:13px">Task yang sudah dibuat (${ts.map(t => esc(t.kode)).join(', ')}) tidak ikut berubah; ubah tanggalnya di task masing-masing bila perlu.</p>` : ''}
+  <div class="dlg-act">${e ? `<button type="button" class="btn danger" data-act="tl-reset" data-id="${esc(a.id)}">Kembalikan ke PDF</button>` : ''}<span class="sp"></span>
+    <button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Simpan</button></div>`,
+  fd => {
+    const m = fd.get('mulai'), sl = fd.get('selesai');
+    if (!m || !sl || sl < m) { toast('Tanggal selesai tidak boleh sebelum mulai'); return; }
+    D.tlEdit = D.tlEdit.filter(x => x.id !== String(a.id));
+    if (m !== o.mulai || sl !== o.selesai) D.tlEdit.push({ id: String(a.id), mulai: m, selesai: sl, catatan: String(fd.get('catatan') || '').trim() });
+    save(); render(); toast(m === o.mulai && sl === o.selesai ? 'Tanggal kembali sesuai PDF' : `Tanggal timeline diubah: ${fmt(m)} – ${fmt(sl)}`);
+  });
+}
 function tlBuat(ids, w) {
   const o = weekObj(w);
   if (!ids.length || !o) { toast('Belum ada aktivitas yang dicentang'); return 0; }
@@ -563,7 +593,7 @@ function tlBuat(ids, w) {
   return baru;
 }
 const tlChip = t => { const a = t.bl && tlById(t.bl); if (!a) return ''; const s = tlSlip(t);
-  return `<span title="Aktivitas Timeline Schedule">⏱ timeline ${fmt(a.mulai)} – ${fmt(a.selesai)}</span>${s > 0 ? `<span class="chip bad">+${s} hr dari timeline</span>` : ''}`; };
+  return `<a href="#" data-act="tl-ubah" data-id="${esc(a.id)}" title="Ubah tanggal aktivitas timeline">⏱ timeline ${fmt(a.mulai)} – ${fmt(a.selesai)}${a.ubah ? ' (diubah)' : ''}</a>${s > 0 ? `<span class="chip bad">+${s} hr dari timeline</span>` : ''}`; };
 function msCard() {
   const M = TL().filter(a => a.ms && days(tgl(), a.mulai) >= -7).sort((a, b) => a.mulai.localeCompare(b.mulai)); // yang lewat > 7 hari disembunyikan
   if (!M.length) return '';
@@ -1500,6 +1530,8 @@ document.addEventListener('click', e => {
     }
     case 'pdf-jadwal': openDlg(pdfJadwalForm(), fd => printJadwal({ from: fd.get('from'), look: fd.get('look'), dis: fd.get('dis'), grp: fd.get('grp'), task: fd.has('task') })); break;
     case 'tl-pick': tlPick(el.dataset.w || tlWeek()); break;
+    case 'tl-ubah': e.preventDefault(); tlUbah(el.dataset.id); break;
+    case 'tl-reset': D.tlEdit = D.tlEdit.filter(x => x.id !== el.dataset.id); dlgSubmit = null; $('#dlg').close(); save(); render(); toast('Tanggal kembali sesuai PDF'); break;
     case 'tl-add': { const t = tlBuat([el.dataset.id], +el.dataset.w)[0]; if (t) { render(); editTask({ ...t }, false); } break; }
     case 'tl-all': document.querySelectorAll('#tl-pick .pick-i:not([hidden]) input:not(:disabled)').forEach(c => { c.checked = true; }); tlFilter(); break;
     case 'tl-none': document.querySelectorAll('#tl-pick input:checked').forEach(c => { c.checked = false; }); tlFilter(); break;
