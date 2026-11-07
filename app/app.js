@@ -1111,6 +1111,18 @@ function mpChart() {
     <div class="legend"><span><i style="background:var(--plan);opacity:.6"></i>Rencana (MP-Master)</span><span><i style="background:var(--ok)"></i>Aktual rata-rata</span></div>`;
 }
 
+const DOK_FD = { '': 'Semua', open: 'Belum approve', lewat3: 'Submit > 3 hari', cw: 'Awaiting feedback (CW)', own: 'Awaiting owner (Safran)', lewat: 'Lewat target', Draft: 'Draft', Submitted: 'Submitted', Revisi: 'Revisi / Not Approved', Rejected: 'Rejected', Approved: 'Approved' };
+const dokKat = x => x.jenis || 'Manual';
+const dokCocok = (x, f) => !f || (DOK_FX[f] ? DOK_FX[f](x) : f === 'open' ? x.status !== 'Approved' : f === 'lewat' ? lewatDok(x) : x.status === f);
+// daftar dokumen terfilter & terurut (dipakai tabel dan cetak PDF); o = { f, sc, jn, sb, q, pic }
+function dokFilter(o) {
+  const all0 = allDok(), q = String(o.q || '').toLowerCase().trim(), urut = new Map();
+  all0.forEach(x => { const k = dokKat(x); if (!urut.has(k)) urut.set(k, urut.size); if (x.sub && !urut.has(k + '|' + x.sub)) urut.set(k + '|' + x.sub, urut.size); });
+  return all0.filter(x => (!o.sc || x.scope === o.sc) && (!q || [x.nomor, x.nama, x.pic, x.sub, x.issue].join(' ').toLowerCase().includes(q)) && dokCocok(x, o.f)
+      && (!o.jn || dokKat(x) === o.jn) && (!o.sb || x.sub === o.sb) && (!o.pic || (x.pic || '') === o.pic))
+    .sort((a, b) => urut.get(dokKat(a)) - urut.get(dokKat(b)) || (urut.get(dokKat(a) + '|' + a.sub) ?? -1) - (urut.get(dokKat(b) + '|' + b.sub) ?? -1)
+      || (lewatDok(b) - lewatDok(a)) || ((a.status === 'Approved') - (b.status === 'Approved')) || String(a.target || '9999').localeCompare(String(b.target || '9999')));
+}
 function vDok() {
   drvAuto();
   const f = UI.dokF, sc = UI.dokScope, jn = UI.dokJenis, sb = UI.dokSub, q = UI.dokQ.toLowerCase().trim(), all0 = allDok();
@@ -1119,16 +1131,14 @@ function vDok() {
   const scopeL = [...new Set([...D.disiplin, ...all0.map(x => x.scope).filter(Boolean)])];
   // filter selain kategori → dipakai untuk angka di chip kategori
   const base = all0.filter(x => (!sc || x.scope === sc) && (!q || [x.nomor, x.nama, x.pic, x.sub, x.issue].join(' ').toLowerCase().includes(q))
-      && (!f || (DOK_FX[f] ? DOK_FX[f](x) : f === 'open' ? x.status !== 'Approved' : f === 'lewat' ? lewatDok(x) : x.status === f)));
+      && dokCocok(x, f));
   const all = jn ? all0.filter(x => kat(x) === jn) : all0; // KPI mengikuti kategori terpilih
   const subL = jn ? [...new Set(all.map(x => x.sub).filter(Boolean))] : [];
-  const L = base.filter(x => (!jn || kat(x) === jn) && (!sb || x.sub === sb))
-    .sort((a, b) => urut.get(kat(a)) - urut.get(kat(b)) || (urut.get(kat(a) + '|' + a.sub) ?? -1) - (urut.get(kat(b) + '|' + b.sub) ?? -1)
-      || (lewatDok(b) - lewatDok(a)) || ((a.status === 'Approved') - (b.status === 'Approved')) || String(a.target || '9999').localeCompare(String(b.target || '9999')));
+  const L = dokFilter({ f, sc, jn, sb, q });
   const katL = [...urut.keys()].filter(k => !k.includes('|'));
   const nKat = k => base.filter(x => kat(x) === k).length;
   const n = s => all.filter(x => x.status === s).length, lw = all.filter(lewatDok).length;
-  const FD = { '': 'Semua', open: 'Belum approve', lewat3: 'Submit > 3 hari', cw: 'Awaiting feedback (CW)', own: 'Awaiting owner (Safran)', lewat: 'Lewat target', Draft: 'Draft', Submitted: 'Submitted', Revisi: 'Revisi / Not Approved', Rejected: 'Rejected', Approved: 'Approved' };
+  const FD = DOK_FD;
   const id = drvId(dokSrc());
   const src = id ? `<div class="card" style="padding:10px 14px"><div class="bar" style="margin:0">
       <span class="muted" style="font-size:13px">Log dokumen Drive (hanya baca) · ${drvBusy ? 'membaca…' : DRV.at && DRV.src === id ? `${drvDocs().length} dokumen · dibaca ${new Date(DRV.at).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : 'belum dibaca'}</span>
@@ -1147,7 +1157,8 @@ function vDok() {
   <div class="prio-f kat-f"><button type="button" data-act="dok-kat" data-v="" class="${jn ? '' : 'on'}">Semua kategori <b>${base.length}</b></button>${katL.map(k => `<button type="button" data-act="dok-kat" data-v="${esc(k)}" class="${jn === k ? 'on' : ''}">${esc(k)} <b>${nKat(k)}</b></button>`).join('')}</div>
   <div class="bar">${subL.length ? `<select data-ui="dokSub" style="width:auto">${opt('', sb, 'Semua sub-kategori')}${subL.map(d => opt(d, sb)).join('')}</select>` : ''}
     <select data-ui="dokScope" style="width:auto">${opt('', sc, 'Semua scope')}${scopeL.map(d => opt(d, sc)).join('')}</select>
-    <input type="search" data-ui="dokQ" value="${esc(UI.dokQ)}" placeholder="Cari nomor / nama / PIC" style="flex:1;min-width:160px"></div>
+    <input type="search" data-ui="dokQ" value="${esc(UI.dokQ)}" placeholder="Cari nomor / nama / PIC" style="flex:1;min-width:160px">
+    <button type="button" class="btn" data-act="pdf-dok">Cetak PDF</button></div>
   ${L.length ? `<div class="card dok-t"><table class="tbl">
     <thead><tr><th>Dokumen</th><th class="w-l">PIC</th><th>Status</th><th class="n">Tanggal</th></tr></thead>
     <tbody>${(() => {
@@ -1342,6 +1353,49 @@ function printReport(r, o) {
 }
 
 /* ---------- PDF Jadwal / Lookahead: 1 minggu atau beberapa minggu ke depan, bar per minggu, opsional task komitmen ---------- */
+function pdfDokForm() {
+  const all = allDok(), katL = [...new Set(all.map(dokKat))], scL = [...new Set([...D.disiplin, ...all.map(x => x.scope).filter(Boolean)])];
+  const picL = [...new Set(all.map(x => x.pic).filter(Boolean))].sort();
+  return `<h3>PDF Tracking Dokumen</h3>
+  <p class="muted" style="font-size:13px;margin-top:0">Terisi sesuai filter di layar; ubah bila perlu.</p>
+  <div class="frow">
+    <label class="f">Status / filter<select name="f">${Object.entries(DOK_FD).map(([k, l]) => opt(k, UI.dokF, l)).join('')}</select></label>
+    <label class="f">Kategori<select name="jn">${opt('', UI.dokJenis, 'Semua kategori')}${katL.map(k => opt(k, UI.dokJenis)).join('')}</select></label>
+  </div>
+  <div class="frow">
+    <label class="f">Scope<select name="sc">${opt('', UI.dokScope, 'Semua scope')}${scL.map(k => opt(k, UI.dokScope)).join('')}</select></label>
+    <label class="f">PIC<select name="pic">${opt('', '', 'Semua PIC')}${picL.map(k => opt(k, '')).join('')}</select></label>
+  </div>
+  <div class="frow">
+    <label class="f">Cari<input type="text" name="q" value="${esc(UI.dokQ)}" placeholder="nomor / nama / remarks"></label>
+    <label class="f">Susunan<select name="grp">${opt('kat', 'kat', '1 halaman per kategori')}${opt('satu', 'kat', 'Satu tabel')}</select></label>
+  </div>
+  <p class="muted" style="font-size:13px">Kertas A4 mendatar. Di jendela cetak pilih <b>Simpan sebagai PDF</b>.</p>
+  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Buat PDF</button></div>`;
+}
+function printDok(o) {
+  const L = dokFilter({ ...o, sb: o.jn && o.jn === UI.dokJenis ? UI.dokSub : '' });
+  if (!L.length) { toast('Tidak ada dokumen untuk filter ini'); return; }
+  const groups = o.grp === 'kat' ? [...new Set(L.map(dokKat))].map(k => [k, L.filter(x => dokKat(x) === k)]) : [[o.jn || 'Semua kategori', L]];
+  const filt = [o.f && DOK_FD[o.f], o.sc && 'Scope ' + o.sc, o.pic && 'PIC ' + o.pic, o.q && `"${o.q}"`].filter(Boolean).join(' · ') || 'Semua dokumen';
+  const head = ['No', 'Document number', 'Rev', 'Description', 'Rencana submit', 'Submit aktual', 'Respon CW', 'Respon Safran', 'Umur (hari)', 'Status', 'Remarks', 'PIC'];
+  const rows = ds => { let n = 0, sub = null; return ds.map(x => {
+    const u = umurDok(x), sh = x.sub && x.sub !== sub ? `<tr class="sb"><td colspan="${head.length}">${esc(x.sub)}</td></tr>` : ''; sub = x.sub || sub;
+    return sh + `<tr><td>${++n}</td><td>${esc(x.nomor || '–')}</td><td>${x.rev ?? 0}</td><td>${esc(x.nama)}</td><td>${fmt(x.target) || ''}</td><td>${fmt(x.tglSubmit) || ''}</td>
+      <td>${x.drive ? fmt(x.cw) || '' : ''}</td><td>${x.drive ? fmt(x.own) || '' : fmt(x.tglApprove) || ''}</td><td class="u${u > 14 ? ' bad' : u > 7 ? ' warn' : ''}">${u ?? ''}</td>
+      <td>${esc(x.stAsli || x.status)}${lewatDok(x) ? ' <b>(lewat)</b>' : ''}</td><td class="rm">${esc(x.issue || '')}</td><td>${esc(x.pic || '')}</td></tr>`; }).join(''); };
+  const ring = ds => { const c = f => ds.filter(DOK_FX[f]).length; return `${ds.length} dokumen · ${ds.filter(x => x.status === 'Approved').length} approved · ${c('cw')} awaiting CW · ${c('own')} awaiting Safran · ${c('lewat3')} submit > 3 hari`; };
+  $('#print').innerHTML = groups.map(([g, ds]) => `<section class="pg dok">
+    <header><div><b>Tracking Dokumen</b><span>${esc(D.meta.project)}</span></div>
+      <div class="pr-meta"><span>Kategori: <b>${esc(g)}</b></span><span>${esc(filt)}</span><span>Dicetak ${fmt(todayISO())}${D.sync.user ? ' oleh ' + esc(D.sync.user) : ''}</span></div></header>
+    <table><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows(ds)}</tbody></table>
+    <p class="pr-n">${ring(ds)} · umur = hari sejak submit aktual untuk dokumen yang belum ada keputusan</p>
+  </section>`).join('');
+  const judul = document.title;
+  document.title = ['Tracking_Dokumen', o.jn || 'Semua', o.f ? DOK_FD[o.f].replace(/\W+/g, '_') : '', todayISO()].filter(Boolean).join('_');
+  addEventListener('afterprint', () => { document.title = judul; $('#print').innerHTML = ''; }, { once: true });
+  setTimeout(() => print(), 60);
+}
 function pdfJadwalForm() {
   const cw = weekOf(tgl()), from = UI.jFrom ?? cw, look = UI.jLook === 'all' ? '4' : UI.jLook;
   return `<h3>PDF Jadwal / Lookahead</h3>
@@ -1541,6 +1595,7 @@ document.addEventListener('click', e => {
       openDlg(pdfForm(r), fd => printReport(r, { week: fd.has('week') ? fd.get('week') : UI.week, tgl: fd.get('tgl') || UI.harianTgl || tgl(), pic: fd.get('pic') || '' }));
       break;
     }
+    case 'pdf-dok': openDlg(pdfDokForm(), fd => printDok({ f: fd.get('f') || '', jn: fd.get('jn') || '', sc: fd.get('sc') || '', pic: fd.get('pic') || '', q: String(fd.get('q') || '').trim(), grp: fd.get('grp') })); break;
     case 'pdf-jadwal': openDlg(pdfJadwalForm(), fd => printJadwal({ from: fd.get('from'), look: fd.get('look'), dis: fd.get('dis'), grp: fd.get('grp'), task: fd.has('task') })); break;
     case 'tl-pick': tlPick(el.dataset.w || tlWeek()); break;
     case 'tl-ubah': e.preventDefault(); tlUbah(el.dataset.id); break;
