@@ -314,3 +314,15 @@ a.kpi:hover { border-color: var(--brand-2); }
 .ms.dekat { border-left-color: var(--warn); } .ms.dekat em { color: var(--warn); }
 .ms.lewat { opacity: .6; border-left-color: var(--line); }
 .tl-b { display: flex; gap: 6px; flex: 0 0 auto; }
+/* PDF tracking dokumen: A4 mendatar */
+@page dokl { size: A4 landscape; margin: 10mm; }
+@media print {
+  #print .dok { page: dokl; }
+  #print .dok table { font-size: 8.5pt; }
+  #print .dok td:nth-child(n+5):nth-child(-n+9) { white-space: nowrap; }
+  #print .dok td.u { text-align: center; }
+  #print .dok td.u.warn { background: #fdf0c8 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #print .dok td.u.bad { background: #f8d4d0 !important; font-weight: bold; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #print .dok td.rm { min-width: 45mm; white-space: pre-line; }
+  #print .dok tr.sb td { background: #f4f6f9 !important; font-weight: bold; font-size: 8.5pt; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
