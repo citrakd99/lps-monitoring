@@ -956,6 +956,9 @@ function mpWeek(w) {
 }
 // dokumen Drive: target = rencana SUBMIT (lewat bila belum submit); dokumen manual: target = rencana APPROVE
 const lewatDok = x => x.drive ? !x.tglSubmit && !!x.target && x.target < tgl() : x.status !== 'Approved' && !!x.target && x.target < tgl();
+// umur sejak submit aktual: berjalan sampai ada keputusan (Approved / Not approved / Rejected)
+const umurDok = x => x.tglSubmit && x.status === 'Submitted' ? days(x.tglSubmit, tgl()) : null;
+const umurChip = (x, pj) => { const n = umurDok(x); return n == null ? '' : `<span class="chip ${n > 14 ? 'bad' : n > 7 ? 'warn' : ''}">${n} hari${pj ? ' sejak submit' : ''}</span>`; };
 const dokOfTask = kode => D.dokumen.filter(x => String(x.kode).split(',').map(s => s.trim()).includes(kode));
 
 /* ---------- Dokumen dari log Google Drive (HANYA BACA lewat link berbagi "Pelihat"; tidak pernah menulis ke Drive) ----------
@@ -1010,7 +1013,7 @@ function drvSheet(name, gid, rows, id) {
   return [...by.entries()].map(([key, d]) => {
     const revs = d.revs.sort((a, b) => a.rev - b.rev), x = revs.at(-1), status = stDrv(x.st || '');
     return { id: 'g:' + jenis + ':' + key, drive: true, jenis, scope: d.scope, sub: d.sub, nomor: d.no, nama: d.desc || d.no, rev: x.rev,
-      status, stAsli: x.st || 'Belum submit', target: x.est, tglSubmit: x.sub, respon: x.own || x.cw || null, tglApprove: status === 'Approved' ? (x.own || x.cw || null) : null,
+      status, stAsli: x.st || 'Belum submit', target: x.est, tglSubmit: x.sub, cw: x.cw, own: x.own, respon: x.own || x.cw || null, tglApprove: status === 'Approved' ? (x.own || x.cw || null) : null,
       issue: x.rem, pic: x.pic, kode: '', link,
       riwayat: revs.length < 2 ? "" : revs.map(v => `Rev ${v.rev} · ${v.st || '-'}${v.sub ? ' · submit ' + fmt(v.sub) : ''}${v.own || v.cw ? ' · respon ' + fmt(v.own || v.cw) : ''}${v.rem ? '\n   ' + v.rem.replace(/\s*\n\s*/g, ' ') : ''}`).join('\n') };
   });
@@ -1122,7 +1125,6 @@ function vDok() {
   const katL = [...urut.keys()].filter(k => !k.includes('|'));
   const nKat = k => base.filter(x => kat(x) === k).length;
   const n = s => all.filter(x => x.status === s).length, lw = all.filter(lewatDok).length;
-  const tunggu = x => x.status === 'Submitted' && x.tglSubmit && !x.respon ? days(x.tglSubmit, tgl()) : null;
   const FD = { '': 'Semua', open: 'Belum approve', lewat: 'Lewat target', Draft: 'Draft', Submitted: 'Submitted', Revisi: 'Revisi / Not Approved', Rejected: 'Rejected', Approved: 'Approved' };
   const id = drvId(dokSrc());
   const src = id ? `<div class="card" style="padding:10px 14px"><div class="bar" style="margin:0">
@@ -1157,13 +1159,14 @@ function vDok() {
         }
         if (tutup) continue;
         if (x.sub && x.sub !== gS && !sb) { h += `<tr class="dok-sub"><td colspan="4">${esc(x.sub)}</td></tr>`; gS = x.sub; }
-        const tg = tunggu(x), lw = lewatDok(x);
-        const tanggal = x.respon ? ['Respon', x.respon] : x.tglSubmit ? ['Submit', x.tglSubmit] : [x.drive ? 'Rencana submit' : 'Target', x.target];
+        const lw = lewatDok(x), tl = (l, v) => v ? `<small class="muted">${l}</small> ${fmt(v)}` : '';
+        const tanggal = [x.tglSubmit ? tl('Submit', x.tglSubmit) : tl(x.drive ? 'Rencana' : 'Target', x.target),
+          x.drive ? [tl('CW', x.cw), tl('Safran', x.own)].filter(Boolean).join('<br>') : tl('Approve', x.tglApprove)].filter(Boolean).join('<br>');
         h += `<tr id="d-${esc(x.id)}" data-act="dok-info" data-id="${esc(x.id)}">
-          <td><span class="code">${esc(x.nomor || '(tanpa nomor)')}${x.rev ? ' · Rev ' + x.rev : ''}</span><br>${esc(x.nama)}</td>
+          <td><span class="code">${esc(x.nomor || '(tanpa nomor)')}${x.rev ? ' · Rev ' + x.rev : ''}</span><br>${esc(x.nama)}${x.issue ? `<small class="dok-rem">${esc(x.issue)}</small>` : ''}</td>
           <td class="w-l">${esc(x.pic || '–')}</td>
-          <td>${dokStChip(x)}${lw ? `<br><span class="chip bad">lewat</span>` : tg != null && tg > 7 ? `<br><span class="chip warn">${tg} hr</span>` : ''}</td>
-          <td class="n"><small class="muted">${tanggal[0]}</small><br>${fmt(tanggal[1])}</td></tr>`;
+          <td>${dokStChip(x)}${lw ? `<br><span class="chip bad">lewat</span>` : umurDok(x) != null ? '<br>' + umurChip(x) : ''}</td>
+          <td class="n dok-tg">${tanggal || '–'}</td></tr>`;
       }
       return h;
     })()}</tbody></table></div>
@@ -1176,15 +1179,17 @@ const dokStChip = x => x.drive && x.stAsli !== x.status ? `<span class="chip ${(
 function dokInfo(id) {
   const x = allDok().find(d => d.id === id); if (!x) return;
   const sisa = x.target ? days(tgl(), x.target) : null, tasks = String(x.kode).split(',').map(s => s.trim()).filter(Boolean);
-  const tg = x.status === 'Submitted' && x.tglSubmit && !x.respon ? days(x.tglSubmit, tgl()) : null;
   const next = x.drive ? [] : { Draft: [['Submitted', 'Submit']], Submitted: [['Approved', 'Approve'], ['Revisi', 'Revisi'], ['Rejected', 'Reject']], Revisi: [['Submitted', `Submit ulang (Rev ${x.rev + 1})`]], Rejected: [['Submitted', `Submit ulang (Rev ${x.rev + 1})`]] }[x.status] || [];
   const row = (k, v) => v ? `<tr><th>${k}</th><td>${v}</td></tr>` : '';
   openDlg(`<h3 style="margin-bottom:2px">${esc(x.nama)}</h3>
     <p class="code" style="margin:0 0 8px">${esc(x.nomor || '(tanpa nomor)')} · Rev ${x.rev}</p>
-    <div class="chips" style="justify-content:flex-start">${dokStChip(x)}${lewatDok(x) ? `<span class="chip bad">lewat ${-sisa} hari</span>` : tg != null ? `<span class="chip ${tg > 7 ? 'warn' : ''}">menunggu respon ${tg} hari</span>` : !x.drive && x.status !== 'Approved' && sisa != null ? `<span class="chip">sisa ${sisa} hari</span>` : ''}</div>
+    <div class="chips" style="justify-content:flex-start">${dokStChip(x)}${lewatDok(x) ? `<span class="chip bad">lewat ${-sisa} hari</span>` : umurDok(x) != null ? umurChip(x, 1) : !x.drive && x.status !== 'Approved' && sisa != null ? `<span class="chip">sisa ${sisa} hari</span>` : ''}</div>
     <table class="tbl dok-d">
       ${row('Jenis', esc(x.jenis || 'Manual'))}${row('Scope', esc([x.scope, x.sub].filter(Boolean).join(' · ')))}${row('PIC', esc(x.pic))}
-      ${x.drive ? row('Rencana submit', fmt(x.target)) + row('Submit', fmt(x.tglSubmit)) + row('Respon', x.respon && fmt(x.respon))
+      ${x.drive ? row('Rencana submit', fmt(x.target)) + row('Submit aktual', x.tglSubmit && `${fmt(x.tglSubmit)} <small class="muted">· ${days(x.tglSubmit, tgl())} hari lalu</small>`)
+          + row('Respon CW', x.cw && `${fmt(x.cw)} <small class="muted">· ${days(x.tglSubmit || x.cw, x.cw)} hari setelah submit</small>`)
+          + row('Respon Safran', x.own && `${fmt(x.own)} <small class="muted">· ${days(x.tglSubmit || x.own, x.own)} hari setelah submit</small>`)
+          + (!x.cw && !x.own && x.respon ? row('Respon', fmt(x.respon)) : '')
         : row('Target approve', fmt(x.target)) + row('Submit', fmt(x.tglSubmit)) + row('Approved', x.tglApprove && fmt(x.tglApprove))}
       ${row('Remarks / issue', x.issue && esc(x.issue).replace(/\n/g, '<br>'))}
       ${row('Task LPS', tasks.map(k => `<a href="#ready" data-act="goto-ready" data-kode="${esc(k)}" class="chip info" style="text-decoration:none">${esc(k)}</a>`).join(' '))}
