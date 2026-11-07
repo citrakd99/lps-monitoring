@@ -4,7 +4,25 @@
    Versi yang di-hosting publik tidak membawa seed.json: jadwal (master) diambil dari Google Sheet tim setelah kode akses diisi.
    Peta Excel → field ada di PETA-EXCEL-KE-APLIKASI.md */
 
-const KEY = 'lps-batik-v1';
+/* Mode SPV (spv.html): HANYA LIHAT. Tidak ada tombol ubah / buat / hapus / cetak / ekspor; tidak pernah mengirim data.
+   Server juga menolak tulis dari kode akses SPV (VIEW_KEY di Code.gs). Data lokal terpisah dari aplikasi tim. */
+const RO = document.documentElement.dataset.mode === 'spv';
+const KEY = RO ? 'lps-batik-spv' : 'lps-batik-v1';
+// aksi yang boleh di mode SPV: navigasi, filter, detail, sinkron (tarik)
+const RO_OK = new Set(['settings', 'sync-now', 'sync-off', 'sd-tab', 'mp-day', 'mp-all', 'dok-f', 'drv-load', 'dok-kat', 'dok-grp', 'dok-info',
+  'goto-dok', 'fprio', 'day', 'goto-ready', 'goto-komit', 'tl-goto', 'hmode']);
+const RO_TAMPIL = new Set(['kst', 'sepakat']); // tombol status: tetap terlihat (menunjukkan status) tapi nonaktif
+function roLock(root) {
+  if (!RO || !root) return;
+  root.querySelectorAll('[data-act]').forEach(el => {
+    const a = el.dataset.act;
+    if (RO_OK.has(a)) return;
+    if (RO_TAMPIL.has(a)) { el.disabled = true; return; }
+    if (el.matches('button, .btn, .fab') || (el.tagName === 'A' && !el.children.length && a !== 'tl-ubah')) el.hidden = true;
+    else { el.removeAttribute('data-act'); el.removeAttribute('href'); } // mis. chip timeline: tetap tampil sebagai teks
+  });
+  root.querySelectorAll('input, select, textarea').forEach(el => { if (!el.dataset.ui && !RO_OK.has(el.dataset.act) && el.type !== 'search' && !el.closest('.ro-ok')) el.disabled = true; });
+}
 const KAT = { eng: 'Engineering / HSE', mat: 'Material & Alat', mp: 'Man Power', oth: 'Other' };
 const KK = Object.keys(KAT);
 const BLN = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
@@ -206,7 +224,7 @@ function normalize(s) {
 function persist() {
   try { localStorage.setItem(KEY, JSON.stringify(D)); } catch (e) { toast('Gagal menyimpan: ' + e.message); }
 }
-function save() { TLc = null; stamp(); persist(); scheduleSync(); }
+function save() { TLc = null; if (RO) { persist(); return; } stamp(); persist(); scheduleSync(); } // SPV: hanya pengaturan perangkat
 
 /* ---------- sinkron tim (Google Sheets via Apps Script, lihat gas/Code.gs) ----------
    Setiap record (task / daily log) diberi _u (waktu ubah) & _by (nama). Perubahan dideteksi dengan
@@ -266,6 +284,8 @@ async function post(payload) {
   if (!r.ok) throw new Error('HTTP ' + r.status);
   const j = await r.json();
   if (!j.ok) throw new Error(j.error || 'server menolak');
+  if (!RO && j.ro) throw new Error('kode akses ini khusus SPV (hanya lihat) – pakai kode akses tim');
+  if (RO && !j.ro) throw new Error('aplikasi SPV hanya menerima kode akses SPV – minta ke admin');
   return j;
 }
 async function syncNow(manual) {
@@ -280,6 +300,7 @@ async function syncNow(manual) {
     const master = res => { if (res.master) { applyMaster(res.master); changed++; } if (res.masterVer) S.masterVer = res.masterVer; return res; };
     if (!S.rev) changed += applyRemote(master(await post({ ...base, since: 0, masterVer: S.masterVer })), true); // pertama kali: data tim menang
     const sent = {}, body = { ...base, since: S.rev, masterVer: S.masterVer, ...Object.fromEntries(Object.keys(TBL).map(t => [t, []])) };
+    if (RO) S.dirty = {}; // SPV tidak pernah mengirim data
     for (const id of Object.keys(S.dirty)) { const l = localRec(id); if (l) { body[l.t].push(l.r); sent[id] = l.r._u; } else delete S.dirty[id]; }
     changed += applyRemote(master(await post(body)), false);
     for (const id in sent) { const l = localRec(id); if (!l || l.r._u === sent[id]) delete S.dirty[id]; }
@@ -345,6 +366,7 @@ function render() {
   }
   renderHeader();
   $('#view').innerHTML = { dash: vDash, jadwal: vJadwal, komit: vKomit, ready: vReady, harian: vHarian, issue: vIssue, sd: vSD }[UI.view]();
+  roLock($('#view'));
   if (UI.focus) {
     const el = document.getElementById(UI.focus);
     if (el) { el.classList.add('hl'); el.scrollIntoView({ block: 'center' }); }
@@ -869,15 +891,15 @@ function vIssue() {
 /* ---------- DATA & PENGATURAN ---------- */
 function settingsForm() {
   const s = D.settings;
-  return `<h3>Data & pengaturan</h3>
+  return `<div class="ro-ok"><h3>Data & pengaturan</h3>
   <label class="f">Tanggal update<select name="tglMode">${opt('auto', s.tglMode, 'Otomatis = hari ini')}${opt('fixed', s.tglMode, 'Tanggal tertentu')}</select></label>
   <label class="f">Tanggal (bila tertentu)<input type="date" name="tglFixed" value="${esc(s.tglFixed || D.meta.tglUpdate || '')}"></label>
-  <label class="f">Target PPC (%)<input type="number" name="targetPPC" min="0" max="100" value="${Math.round(D.meta.targetPPC * 100)}"></label>
+  ${RO ? '' : `<label class="f">Target PPC (%)<input type="number" name="targetPPC" min="0" max="100" value="${Math.round(D.meta.targetPPC * 100)}"></label>`}
   <fieldset style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 12px">
-    <legend style="font-weight:600;font-size:14px;padding:0 4px">Sinkron tim (Google Sheets)</legend>
+    <legend style="font-weight:600;font-size:14px;padding:0 4px">${RO ? 'Data tim – SPV (hanya lihat)' : 'Sinkron tim (Google Sheets)'}</legend>
     <label class="f">URL Web App (…/exec)<input type="text" name="syncUrl" inputmode="url" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(D.sync.url)}"></label>
     <div class="frow">
-      <label class="f">Kode akses tim<input type="text" name="syncKey" autocomplete="off" value="${esc(D.sync.key)}"></label>
+      <label class="f">${RO ? 'Kode akses SPV' : 'Kode akses tim'}<input type="text" name="syncKey" autocomplete="off" value="${esc(D.sync.key)}"></label>
       <label class="f">Nama Anda<input type="text" name="syncUser" placeholder="mis. Agus SM" value="${esc(D.sync.user)}"></label>
     </div>
     <p class="muted" style="font-size:13px;margin:0 0 8px">${syncOn() ? `Status: ${esc($('#sync')?.title || '')}${D.sync.lastOk ? ' · terakhir ' + esc(new Date(D.sync.lastOk).toLocaleString('id-ID')) : ''}` : 'Belum terhubung. Data hanya di perangkat ini.'}</p>
@@ -885,7 +907,8 @@ function settingsForm() {
   </fieldset>
   <p class="muted" style="font-size:13px">Sumber: <b>${esc(D.source || '-')}</b><br>Diekspor dari Excel: ${esc((D.exportedAt || '').replace('T', ' '))}<br>
   ${D.tasks.length} task · ${D.daily.length} daily log · ${D.pekerjaan.length} pekerjaan. ${syncOn() ? 'Disalin di perangkat ini & disinkron ke Google Sheet tim.' : 'Data tersimpan di perangkat ini.'}</p>
-  <div class="grid" style="grid-template-columns:1fr 1fr">
+  ${RO ? '<p class="muted" style="font-size:13px">Mode SPV: semua data hanya bisa dilihat. Perubahan dilakukan tim di aplikasi utama.</p>' : ''}
+  <div class="grid" style="grid-template-columns:1fr 1fr"${RO ? ' hidden' : ''}>
     <button type="button" class="btn" data-act="exp-json">Backup JSON</button>
     <button type="button" class="btn" data-act="imp-json">Impor JSON</button>
     <button type="button" class="btn" data-act="exp-csv" data-what="tasks">CSV LPS Input</button>
@@ -901,7 +924,7 @@ function settingsForm() {
       <li><b>Harian</b>: pagi isi janji, target & bobot (% dari task); sore isi <b>actual progress hari ini (% dari task)</b> & penyebab bila actual &lt; bobot. % tercapai, Tercapai? & progress dihitung otomatis.</li>
       <li>Progress 100% = <b>FINISH</b>; lewat rencana selesai = <b>LATE / DELAY</b>. PPC = tercapai ÷ dijanjikan (target ≥ 80%).</li>
     </ol></details>
-  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Tutup</button><button value="save" class="btn pri">Simpan</button></div>`;
+  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Tutup</button><button value="save" class="btn pri">Simpan</button></div></div>`;
 }
 
 function download(name, text, type) {
@@ -1447,6 +1470,7 @@ function printJadwal(o) {
 let dlgSubmit = null;
 function openDlg(html, onSave) {
   $('#dlg-form').innerHTML = html;
+  roLock($('#dlg-form'));
   dlgSubmit = onSave;
   if (!$('#dlg').open) $('#dlg').showModal();
 }
@@ -1546,6 +1570,7 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]');
   if (!el) return;
   const a = el.dataset.act, kode = el.dataset.kode, task = kode && D.tasks.find(t => t.kode === kode);
+  if (RO && !RO_OK.has(a)) { e.preventDefault(); toast('Mode SPV: hanya lihat'); return; }
   // tombol di dialog detail dokumen: tutup detail dulu (dialog berikutnya memakai #dlg yang sama)
   if (['dok-st', 'dok-edit', 'goto-ready'].includes(a) && el.closest('#dlg')?.open) $('#dlg').close();
   switch (a) {
@@ -1553,7 +1578,7 @@ document.addEventListener('click', e => {
       openDlg(settingsForm(), fd => {
         D.settings.tglMode = fd.get('tglMode');
         D.settings.tglFixed = fd.get('tglFixed') || null;
-        D.meta.targetPPC = Math.max(0, Math.min(100, +fd.get('targetPPC') || 80)) / 100;
+        if (!RO) D.meta.targetPPC = Math.max(0, Math.min(100, +fd.get('targetPPC') || 80)) / 100;
         const S = D.sync, key = fd.get('syncKey').trim(), user = fd.get('syncUser').trim();
         const url = fd.get('syncUrl').replace(/[\s\u200B-\u200D\u2060\uFEFF]/g, ''); // spasi & karakter tak terlihat dari copy-paste
         if (url && (!/^https?:\/\//.test(url) || !key || !user)) { toast('Isi URL (https://…), kode akses & nama untuk sinkron'); return; }
@@ -1685,6 +1710,7 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => {
   const el = e.target;
   if (el.dataset.ui) { UI[el.dataset.ui] = el.value; render(); return; }
+  if (RO) return; // SPV: tidak ada isian yang mengubah data
   if (el.dataset.mp) { // aktual manpower per aktivitas per tanggal; kosong = hapus
     const d = UI.mpTgl || tgl(), id = mpId(d, el.dataset.mp), v = el.value === '' ? null : Math.max(0, Math.round(+el.value));
     const r = D.manpower.find(x => x.id === id);

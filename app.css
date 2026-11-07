@@ -326,3 +326,7 @@ a.kpi:hover { border-color: var(--brand-2); }
   #print .dok td.rm { min-width: 45mm; white-space: pre-line; }
   #print .dok tr.sb td { background: #f4f6f9 !important; font-weight: bold; font-size: 8.5pt; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+/* mode SPV (spv.html): hanya lihat, tidak bisa dicetak */
+.ro-tag { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: #f5b301; color: #1d1d1d; font-size: 11px; font-weight: 600; vertical-align: middle; }
+html.ro button:disabled[data-act] { opacity: 1; cursor: default; }
+@media print { html.ro body { display: none !important; } }
