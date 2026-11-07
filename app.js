@@ -959,6 +959,9 @@ const lewatDok = x => x.drive ? !x.tglSubmit && !!x.target && x.target < tgl() :
 // umur sejak submit aktual: berjalan sampai ada keputusan (Approved / Not approved / Rejected)
 const umurDok = x => x.tglSubmit && x.status === 'Submitted' ? days(x.tglSubmit, tgl()) : null;
 const umurChip = (x, pj) => { const n = umurDok(x); return n == null ? '' : `<span class="chip ${n > 14 ? 'bad' : n > 7 ? 'warn' : ''}">${n} hari${pj ? ' sejak submit' : ''}</span>`; };
+// menunggu siapa (dokumen Submitted/Open): Safran bila CW sudah respon atau remarks "awaiting owner", selain itu CW; For Info & yang sudah dibalas Safran tidak dihitung
+const tungguDok = x => umurDok(x) == null || x.own || /for info/i.test(x.stAsli || '') ? '' : x.cw || /awaiting owner/i.test(x.issue || '') ? 'own' : 'cw';
+const DOK_FX = { lewat3: x => umurDok(x) > 3, cw: x => tungguDok(x) === 'cw', own: x => tungguDok(x) === 'own' };
 const dokOfTask = kode => D.dokumen.filter(x => String(x.kode).split(',').map(s => s.trim()).includes(kode));
 
 /* ---------- Dokumen dari log Google Drive (HANYA BACA lewat link berbagi "Pelihat"; tidak pernah menulis ke Drive) ----------
@@ -1116,7 +1119,7 @@ function vDok() {
   const scopeL = [...new Set([...D.disiplin, ...all0.map(x => x.scope).filter(Boolean)])];
   // filter selain kategori → dipakai untuk angka di chip kategori
   const base = all0.filter(x => (!sc || x.scope === sc) && (!q || [x.nomor, x.nama, x.pic, x.sub, x.issue].join(' ').toLowerCase().includes(q))
-      && (!f || (f === 'open' ? x.status !== 'Approved' : f === 'lewat' ? lewatDok(x) : x.status === f)));
+      && (!f || (DOK_FX[f] ? DOK_FX[f](x) : f === 'open' ? x.status !== 'Approved' : f === 'lewat' ? lewatDok(x) : x.status === f)));
   const all = jn ? all0.filter(x => kat(x) === jn) : all0; // KPI mengikuti kategori terpilih
   const subL = jn ? [...new Set(all.map(x => x.sub).filter(Boolean))] : [];
   const L = base.filter(x => (!jn || kat(x) === jn) && (!sb || x.sub === sb))
@@ -1125,7 +1128,7 @@ function vDok() {
   const katL = [...urut.keys()].filter(k => !k.includes('|'));
   const nKat = k => base.filter(x => kat(x) === k).length;
   const n = s => all.filter(x => x.status === s).length, lw = all.filter(lewatDok).length;
-  const FD = { '': 'Semua', open: 'Belum approve', lewat: 'Lewat target', Draft: 'Draft', Submitted: 'Submitted', Revisi: 'Revisi / Not Approved', Rejected: 'Rejected', Approved: 'Approved' };
+  const FD = { '': 'Semua', open: 'Belum approve', lewat3: 'Submit > 3 hari', cw: 'Awaiting feedback (CW)', own: 'Awaiting owner (Safran)', lewat: 'Lewat target', Draft: 'Draft', Submitted: 'Submitted', Revisi: 'Revisi / Not Approved', Rejected: 'Rejected', Approved: 'Approved' };
   const id = drvId(dokSrc());
   const src = id ? `<div class="card" style="padding:10px 14px"><div class="bar" style="margin:0">
       <span class="muted" style="font-size:13px">Log dokumen Drive (hanya baca) · ${drvBusy ? 'membaca…' : DRV.at && DRV.src === id ? `${drvDocs().length} dokumen · dibaca ${new Date(DRV.at).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : 'belum dibaca'}</span>
@@ -1140,7 +1143,7 @@ function vDok() {
     <div class="kpi warn"><b>${n('Revisi') + n('Rejected')}</b><span>Not approved / Revisi / Rejected</span></div>
     <div class="kpi ${lw ? 'bad' : ''}"><b>${lw}</b><span>Lewat target</span></div>
   </div>
-  <div class="prio-f">${Object.entries(FD).map(([k, l]) => `<button type="button" data-act="dok-f" data-v="${k}" class="${f === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+  <div class="prio-f">${Object.entries(FD).map(([k, l]) => `<button type="button" data-act="dok-f" data-v="${k}" class="${f === k ? 'on' : ''}">${l}${DOK_FX[k] ? ` <b>${all.filter(DOK_FX[k]).length}</b>` : ''}</button>`).join('')}</div>
   <div class="prio-f kat-f"><button type="button" data-act="dok-kat" data-v="" class="${jn ? '' : 'on'}">Semua kategori <b>${base.length}</b></button>${katL.map(k => `<button type="button" data-act="dok-kat" data-v="${esc(k)}" class="${jn === k ? 'on' : ''}">${esc(k)} <b>${nKat(k)}</b></button>`).join('')}</div>
   <div class="bar">${subL.length ? `<select data-ui="dokSub" style="width:auto">${opt('', sb, 'Semua sub-kategori')}${subL.map(d => opt(d, sb)).join('')}</select>` : ''}
     <select data-ui="dokScope" style="width:auto">${opt('', sc, 'Semua scope')}${scopeL.map(d => opt(d, sc)).join('')}</select>
