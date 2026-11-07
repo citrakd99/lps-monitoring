@@ -15,6 +15,7 @@
  * Server mengirim master hanya bila masterVer milik perangkat berbeda.
  * Record membawa _u (waktu ubah ISO dari perangkat), _by (nama), _del (true = dihapus).
  * Konflik: _u terbaru menang. Setiap tulis diberi _rev (nomor urut server) untuk tarik inkremental.
+ * Kode SPV (VIEW_KEY, dibuat setup()) = HANYA BACA: data dikirim, semua kiriman tulis diabaikan (res.ro = true).
  */
 
 var KAT = ['eng', 'mat', 'mp', 'oth'];
@@ -76,8 +77,10 @@ function setup() {
   log.setFrozenRows(1);
   var props = PropertiesService.getScriptProperties();
   if (!props.getProperty('TEAM_KEY')) props.setProperty('TEAM_KEY', Utilities.getUuid().slice(0, 8).toUpperCase());
+  if (!props.getProperty('VIEW_KEY')) props.setProperty('VIEW_KEY', 'SPV-' + Utilities.getUuid().slice(0, 6).toUpperCase());
   if (!props.getProperty('REV')) props.setProperty('REV', '0');
   Logger.log('Kode akses tim: ' + props.getProperty('TEAM_KEY'));
+  Logger.log('Kode akses SPV (hanya lihat): ' + props.getProperty('VIEW_KEY'));
 }
 
 function doGet(e) {
@@ -94,13 +97,14 @@ function doPost(e) {
 
 function handle_(b) {
   var props = PropertiesService.getScriptProperties();
-  if (!b.key || b.key !== props.getProperty('TEAM_KEY')) return { ok: false, error: 'Kode akses salah' };
+  var ro = !!b.key && b.key === props.getProperty('VIEW_KEY'); // kode SPV: hanya baca
+  if (!b.key || (!ro && b.key !== props.getProperty('TEAM_KEY'))) return { ok: false, error: 'Kode akses salah' };
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var rev = +props.getProperty('REV') || 0;
-    var res = { ok: true, applied: 0, skipped: 0 };
+    var res = { ok: true, applied: 0, skipped: 0, ro: ro };
     var logRows = [];
     Object.keys(TABLES).forEach(function (t) {
       var T = TABLES[t], sh = ss.getSheetByName(T.sheet);
@@ -115,7 +119,7 @@ function handle_(b) {
       var idx = {};
       rows.forEach(function (r, i) { idx[String(r[iKey])] = i; });
       var changed = false;
-      (b[t] || []).forEach(function (rec) {
+      (ro ? [] : b[t] || []).forEach(function (rec) {
         var k = rec[T.key] == null ? '' : String(rec[T.key]); // kunci 0 (minggu W0) sah
         if (!k) return;
         var i = idx[k];
@@ -131,7 +135,7 @@ function handle_(b) {
       res[t] = rows.filter(function (r) { return +r[iRev] > since; }).map(function (r) { return unflatten_(r, T.cols); });
     });
     props.setProperty('REV', String(rev));
-    if (b.master && typeof b.master === 'object') {
+    if (!ro && b.master && typeof b.master === 'object') {
       writeMaster_(ss, b.master);
       props.setProperty('MASTER_VER', String(b.master.exportedAt || new Date().toISOString()));
       logRows.push([new Date(), b.user || '', MASTER_SHEET, String(b.master.exportedAt || ''), 'jadwal']);

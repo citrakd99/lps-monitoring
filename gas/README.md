@@ -35,6 +35,15 @@ Di aplikasi: ⚙ → **Sinkron tim** → isi **URL Web App**, **Kode akses tim**
 - Setelah itu sinkron otomatis: 2,5 detik setelah ada perubahan, tiap 60 detik saat aplikasi dibuka, dan saat kembali online.
 - Titik di header: hijau = tersinkron · kuning = ada perubahan belum terkirim · abu = offline · merah = gagal (ketuk untuk sinkron manual).
 
+## Aplikasi SPV (hanya lihat)
+
+- Alamat: `…/lps-monitoring/spv.html` – bisa dipasang ke layar utama sebagai aplikasi sendiri ("LPS SPV").
+- Semua menu bisa dilihat; tidak ada tombol ubah, buat, hapus, cetak PDF, maupun ekspor.
+- Kode akses SPV dibuat oleh `setup()` (lihat log *Execution log*: "Kode akses SPV (hanya lihat)"), atau lihat di
+  Project Settings › Script Properties › `VIEW_KEY`. Ganti nilainya di situ untuk mencabut akses semua SPV.
+- Server menolak semua kiriman tulis dari kode SPV. Aplikasi SPV hanya menerima kode SPV; aplikasi tim menolak kode SPV.
+- Setelah memperbarui Code.gs: jalankan `setup()` sekali (kode tim tidak berubah), lalu Deploy › Manage deployments › Edit › New version.
+
 ## Aturan data
 - Konflik (dua orang mengubah task yang sama): **perubahan paling akhir menang** untuk seluruh record task / baris daily log.
 - Hapus task / daily log ikut terhapus di semua perangkat (baris di Sheet ditandai `_del = TRUE`, tidak dihapus fisik).

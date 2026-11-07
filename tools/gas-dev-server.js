@@ -1,7 +1,7 @@
 // Server uji lokal: menjalankan gas/Code.gs apa adanya dengan tiruan SpreadsheetApp di memori.
 // Pemakaian: node tools/gas-dev-server.js [port=8787] [--tanpa-seed]
 //   --tanpa-seed: data/seed.json disembunyikan, meniru aplikasi di hosting publik (jadwal dari Sheet)
-//   Aplikasi: http://localhost:8787/   URL sinkron: http://localhost:8787/exec   Kode akses: DEV
+//   Aplikasi: http://localhost:8787/ (SPV: /spv.html)   URL sinkron: http://localhost:8787/exec   Kode akses: DEV · SPV (hanya baca)
 // Data hanya di memori (hilang saat server dimatikan) – khusus untuk uji, bukan produksi.
 'use strict';
 const fs = require('fs');
@@ -37,7 +37,7 @@ const ctx = {
 };
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'gas', 'Code.gs'), 'utf8'), ctx);
-props.TEAM_KEY = 'DEV';
+props.TEAM_KEY = 'DEV'; props.VIEW_KEY = 'SPV';
 ctx.setup();
 
 const port = +process.argv[2] || 8787;
