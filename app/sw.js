@@ -1,6 +1,6 @@
 // Service worker: shell cache-first, seed.json network-first (agar data Excel terbaru terambil saat online).
 // seed.json tidak ada di hosting publik, jadi tidak masuk SHELL (addAll gagal bila satu file 404).
-const CACHE = 'lps-v35';
+const CACHE = 'lps-v36';
 const SHELL = ['./', 'index.html', 'spv.html', 'app.css', 'app.js', 'manifest.webmanifest', 'manifest-spv.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
 

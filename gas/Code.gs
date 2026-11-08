@@ -29,6 +29,7 @@ var TABLES = {
       .concat(['catatanKendala', 'penyebabTerlambat', 'inLPS', '_u', '_by', '_del', '_rev'])
       .concat(['prio', 'koord', 'followup']) // prioritas: ditambah di akhir agar baris lama tetap sejajar
       .concat(['bl']) // id aktivitas Timeline Schedule (task diambil dari timeline)
+      .concat(['induk', 'porsi']) // pekerjaan multi-minggu: kode task pertama rantai & porsi (%) task ini terhadap total
   },
   progress: { // actual progress mingguan (kumulatif proyek, input manual)
     sheet: 'Progress', key: 'w',
