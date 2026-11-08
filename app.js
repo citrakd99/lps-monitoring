@@ -21,7 +21,7 @@ function lsKunci(baru, akhir) {
 const KEY = RO ? lsKunci('lps-spv', 'spv') : lsKunci('lps-v1', 'v1');
 // aksi yang boleh di mode SPV: navigasi, filter, detail, sinkron (tarik)
 const RO_OK = new Set(['settings', 'sync-now', 'sync-off', 'sd-tab', 'mp-day', 'mp-all', 'dok-f', 'drv-load', 'dok-kat', 'dok-grp', 'dok-info',
-  'goto-dok', 'fprio', 'day', 'goto-ready', 'goto-komit', 'tl-goto', 'hmode', 'h-tab', 'log-goto', 'log-all', 'log-buka', 'kw']);
+  'goto-dok', 'fprio', 'day', 'goto-ready', 'goto-komit', 'tl-goto', 'hmode', 'h-tab', 'log-goto', 'log-all', 'log-buka', 'kw', 'rantai']);
 const RO_TAMPIL = new Set(['kst', 'sepakat', 'waste']); // tombol status: tetap terlihat (menunjukkan status) tapi nonaktif
 function roLock(root) {
   if (!RO || !root) return;
@@ -158,6 +158,47 @@ function ppcWeek(w) {
   const fin = ts.filter(t => stP(t) === 'FINISH').length;
   return { final: ts.length, fin, ppc: ts.length ? fin / ts.length : null };
 }
+/* RANTAI PEKERJAAN MULTI-MINGGU: task mingguan → pekerjaan total.
+   induk = kode task pertama rantai (atau dikenali dari keterangan "(lanjutan T-…)"); porsi = % task ini terhadap pekerjaan total.
+   Progres total = Σ porsi × progres mingguan. Porsi kosong: task pertama 100%, lanjutan = sisa porsi task sebelumnya. */
+const LJ_K = /\(lanjutan (T-[^,)\s]+)/;
+function rootOf(t, seen = {}) {
+  if (t.induk) return t.induk;
+  const m = LJ_K.exec(t.uraian || '');
+  if (m && !seen[t.kode]) { const p = D.tasks.find(x => x.kode === m[1]); if (p) { seen[t.kode] = 1; return rootOf(p, seen); } }
+  return t.kode;
+}
+function rantai(t) {
+  const root = rootOf(t), M = D.tasks.filter(x => rootOf(x) === root).sort((a, b) => a.minggu - b.minggu || a.kode.localeCompare(b.kode));
+  if (M.length < 2 && t.porsi == null) return null;
+  const eff = [], pr = M.map(x => prog(x.kode) || 0);
+  const lj = M.map(x => LJ_K.test(x.uraian || '')); // lanjutan = sisa porsi task sebelumnya (bukan cakupan baru)
+  // task pertama tanpa porsi = sisa setelah task mingguan lain yang direncanakan manual (bukan lanjutan)
+  const awal = Math.max(0, 100 - M.reduce((s, x, i) => s + (i && !lj[i] && x.porsi != null ? x.porsi : 0), 0));
+  M.forEach((x, i) => { eff[i] = x.porsi ?? (i ? r6(eff[i - 1] * (100 - pr[i - 1]) / 100) : awal); });
+  const total = Math.min(100, r6(M.reduce((s, x, i) => s + eff[i] * pr[i] / 100, 0)));
+  return { root, M, eff, pr, total, sum: r6(eff.reduce((a, b, i) => a + (lj[i] ? 0 : b), 0)), idx: M.indexOf(t) };
+}
+const porsiEff = t => { const r = rantai(t); return r ? r.eff[r.idx] : (t.porsi ?? 100); };
+// chip progres: mingguan (task ini) + total (rantai)
+function progChips(t) {
+  const p = prog(t.kode) || 0, r = rantai(t);
+  return `<span class="chip ${p >= 100 ? 'info' : p ? 'prog' : ''}">Mingguan ${pc(p)}</span>${r ? `<a href="#" class="chip ${r.total >= 100 ? 'info' : 'warn'}" data-act="rantai" data-kode="${esc(t.kode)}" title="Lihat riwayat pekerjaan total per minggu">Total ${pc(r.total)} · minggu ${r.idx + 1}/${r.M.length} · porsi ${pc(r.eff[r.idx])}</a>` : ''}`;
+}
+function rantaiDlg(t) {
+  const r = rantai(t);
+  if (!r) return;
+  const root = D.tasks.find(x => x.kode === r.root) || r.M[0];
+  openDlg(`<h3>Pekerjaan total · ${esc(r.root)}</h3>
+  <p style="margin:0 0 6px"><b>${esc(root.uraian.replace(LJ_RE, ''))}</b><br><small class="muted">${esc([root.pekerjaan, root.lokasi, root.pic && 'PIC ' + root.pic].filter(Boolean).join(' · '))}</small></p>
+  <div class="bar-h" style="margin:6px 0"><i style="width:${r.total}%"></i></div>
+  <p class="muted" style="font-size:13px;margin-top:0">Progres total <b>${pc(r.total)}</b> dari ${r.M.length} task mingguan · porsi direncanakan ${pc(r.sum)}${r.sum > 100.5 ? ' <b style="color:var(--bad)">(lebih dari 100% – periksa porsi)</b>' : r.sum < 99.5 ? ' (sisa belum direncanakan)' : ''}</p>
+  <div class="scroll"><table class="tbl"><tr><th>Minggu</th><th>Task</th><th class="n">Porsi</th><th class="n">Mingguan</th><th class="n">Kontribusi</th><th>Status</th></tr>
+  ${r.M.map((x, i) => `<tr${x === t ? ' style="font-weight:600"' : ''}><td>W${x.minggu}</td><td><span class="code">${esc(x.kode)}</span> <small>${esc(x.uraian.replace(LJ_RE, ''))}</small></td><td class="n">${pc(r.eff[i])}${x.porsi == null ? '<small class="muted">*</small>' : ''}</td><td class="n">${pc(r.pr[i])}</td><td class="n">${pc(r6(r.eff[i] * r.pr[i] / 100))}</td><td>${x.disepakati === 'Ya' ? stChip(stP(x) || stK(x)) : x.disepakati === 'Tidak' ? '<span class="chip bad">ditunda</span>' : '<span class="chip">belum dibahas</span>'}</td></tr>`).join('')}
+  </table></div>
+  <p class="muted" style="font-size:12px">* porsi otomatis (task pertama 100%, lanjutan = sisa task sebelumnya). Ubah porsi di form task bila pekerjaan sudah dibagi per minggu.</p>
+  <div class="dlg-act"><span class="sp"></span><button value="cancel" class="btn">Tutup</button></div>`, null);
+}
 const nextKode = () => 'T-' + String(D.tasks.reduce((m, t) => Math.max(m, +(/(\d+)$/.exec(t.kode) || [0, 0])[1]), 0) + 1).padStart(3, '0');
 const label = t => `${t.uraian}${t.pic ? ' (' + t.pic + ')' : ''}`;
 const stChip = s => s ? `<span class="chip ${{ READY: 'ok', PENDING: 'warn', FINISH: 'info', 'LATE / DELAY': 'bad', 'ON PROGRESS': 'prog', 'Berjalan': 'prog', 'Belum mulai': '', 'Selesai (jadwal)': 'info', 'On track': 'ok', 'Hari ini': 'warn', '⚠ LEWAT TARGET': 'bad', 'Belum ada target': 'warn', Ya: 'ok', Tidak: 'bad' }[s] ?? ''}">${esc(s)}</span>` : '';
@@ -178,7 +219,7 @@ function applyMaster(m) { // jadwal & referensi diganti; task, daily log, target
   MASTER_F.forEach(f => { if (m[f] !== undefined) D[f] = m[f]; });
   D.meta = { ...m.meta, targetPPC: ppc ?? 0.8 };
 }
-const TXT_T = ['disiplin', 'pekerjaan', 'area', 'uraian', 'lokasi', 'pic', 'disepakati', 'alasan', 'catatanKendala', 'penyebabTerlambat', 'prio', 'koord', 'followup'];
+const TXT_T = ['disiplin', 'pekerjaan', 'area', 'uraian', 'lokasi', 'pic', 'disepakati', 'alasan', 'catatanKendala', 'penyebabTerlambat', 'prio', 'koord', 'followup', 'induk'];
 /* ---------- prioritas & koordinasi disiplin (task urgent yang perlu follow up detail) ----------
    prio: '' (Normal) | 'Tinggi' | 'Urgent' · koord: disiplin lain yang terlibat, dipisah koma · followup: catatan */
 const PRIO_T = ['prio', 'koord', 'followup'];
@@ -197,7 +238,7 @@ function normTask(t) {
   t.k = Object.assign(blankK(), t.k || {});
   KK.forEach(k => { const c = t.k[k]; c.st = c.st || 'OK'; ['issue', 'detail', 'pic'].forEach(f => { c[f] = c[f] ?? ''; }); c.target = c.target || null; });
   TXT_T.forEach(f => { t[f] = t[f] ?? ''; });
-  t.minggu = +t.minggu || 0; t.mulai = t.mulai || null; t.selesai = t.selesai || null;
+  t.minggu = +t.minggu || 0; t.mulai = t.mulai || null; t.selesai = t.selesai || null; t.porsi = nOr(t.porsi);
   t.inLPS = t.inLPS === true || t.inLPS === 'TRUE';
   if (t.bl == null || t.bl === '') delete t.bl; else t.bl = String(t.bl); // id aktivitas Timeline Schedule
   return t;
@@ -296,6 +337,7 @@ function applyRemote(res, force) {
     if (!force && S.dirty[id]) { const l = localRec(id); if (l && (l.r._u || '') > (r._u || '')) continue; } // lokal lebih baru → dikirim nanti
     const arr = D[t], i = arr.findIndex(x => String(x[key]) === String(r[key]));
     if (t === 'tasks' && !del && !('bl' in r) && i >= 0 && arr[i].bl) r.bl = arr[i].bl;
+    if (t === 'tasks' && !del && !('induk' in r) && i >= 0) { r.induk = arr[i].induk; r.porsi = arr[i].porsi; } // Code.gs lama: kolom rantai belum ada
     if (t === 'daily' && !del && !('masalah' in r) && i >= 0) { r.masalah = arr[i].masalah; r.tindakan = arr[i].tindakan; } // Code.gs lama: kolom log masalah belum ada
     if (t === 'daily' && !del && !('waste' in r) && i >= 0) { r.waste = arr[i].waste; r.jamHilang = arr[i].jamHilang; r.orang = arr[i].orang; } // Code.gs lama: kolom TIMWOODS belum ada
     if (t === 'tasks' && !del && !('prio' in r)) { PRIO_T.forEach(f => { r[f] = i >= 0 ? arr[i][f] : ''; }); oldGas = true; }
@@ -719,11 +761,12 @@ const lanjutanDari = t => D.tasks.find(x => +x.minggu === +t.minggu + 1 && x.ura
 const perluLanjut = t => !!weekObj(+t.minggu + 1) && +t.minggu <= weekOf(tgl()) && !lanjutanDari(t)
   && ((t.disepakati === 'Ya' && (prog(t.kode) || 0) < 100) || t.disepakati === 'Tidak');
 function lanjutkan(t) {
-  const w = +t.minggu + 1, wo = weekObj(w), p = prog(t.kode) || 0;
+  const w = +t.minggu + 1, wo = weekObj(w), p = prog(t.kode) || 0, pe = porsiEff(t);
   if (!wo) return null;
   const n = normTask({ ...JSON.parse(JSON.stringify(t)), kode: nextKode(), minggu: w, disepakati: '', alasan: '', inLPS: false, penyebabTerlambat: '', followup: '',
     uraian: `${t.uraian.replace(LJ_RE, '')} (lanjutan ${t.kode}${p ? `, s/d ${r1(p)}%` : ''})`,
-    mulai: wo.start, selesai: !t.selesai || t.selesai < wo.start || t.selesai > wo.end ? wo.end : t.selesai });
+    mulai: wo.start, selesai: !t.selesai || t.selesai < wo.start || t.selesai > wo.end ? wo.end : t.selesai,
+    induk: rootOf(t), porsi: r1(pe * (100 - Math.min(100, p)) / 100) });
   delete n._u; delete n._by; delete n._rev;
   D.tasks.push(n);
   return n;
@@ -741,11 +784,14 @@ function vKomit() {
   }
   const n = ts.length, ya = ts.filter(t => t.disepakati === 'Ya').length, cw = weekOf(tgl());
   const lj = UI.week === '' ? [] : D.tasks.filter(t => +t.minggu === +UI.week && perluLanjut(t));
-  const kw = [[String(cw), `Minggu ini · W${cw}`], ...(weekObj(cw + 1) ? [[String(cw + 1), `Minggu depan · W${cw + 1}`]] : []), ['', 'Semua minggu']];
+  const kw = [...(weekObj(cw - 1) ? [[String(cw - 1), `Minggu lalu · W${cw - 1}`]] : []), [String(cw), `Minggu ini · W${cw}`], ...(weekObj(cw + 1) ? [[String(cw + 1), `Minggu depan · W${cw + 1}`]] : []), ['', 'Semua minggu']];
   return `
   ${vh(`Komitmen mingguan ${UI.week === '' ? '' : '· W' + UI.week}`, 'komit')}
   <div class="prio-f">${kw.map(([v, l]) => `<button type="button" data-act="kw" data-v="${v}" class="${String(UI.week) === v ? 'on' : ''}">${l}</button>`).join('')}${UI.week !== '' && !kw.some(([v]) => v === String(UI.week)) ? `<button type="button" class="on" data-act="kw" data-v="${UI.week}">W${UI.week}</button>` : ''}</div>
   ${prioBar()}
+  ${UI.week !== '' && +UI.week <= cw ? (() => { const w = +UI.week, S = D.tasks.filter(t => +t.minggu === w && t.disepakati === 'Ya'), fin = S.filter(t => (prog(t.kode) || 0) >= 100), P = ppcWeek(w);
+    return `<div class="card" style="padding:10px 12px"><b>${w === cw ? `Progres W${w} (berjalan)` : `Hasil W${w}`}</b>: ${S.length} disepakati · <b>${fin.length} selesai 100%</b> · ${S.length - fin.length} belum · PPC (Finish ÷ Final) <b>${pct(P.ppc)}</b>
+      ${S.length ? `<div class="bar-h" style="margin-top:6px"><i style="width:${fin.length / S.length * 100}%"></i></div>` : ''}</div>`; })() : ''}
   ${lj.length ? `<div class="fu" style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span style="flex:1;min-width:200px"><b>${lj.length} task W${UI.week}</b> belum selesai / ditunda dan belum dilanjutkan ke W${+UI.week + 1}.</span><button class="btn sm" data-act="lanjut-semua" data-w="${UI.week}">Lanjutkan semua ke W${+UI.week + 1}</button></div>` : ''}
   <p class="muted" style="margin-top:-6px">${n} task · ${ya} disepakati${n ? ' (' + pct(ya / n) + ')' : ''}. Pilih <b>Ya</b> saat rapat mingguan untuk task yang sanggup dikerjakan.</p>
   ${gap}
@@ -760,7 +806,8 @@ function vKomit() {
           <button type="button" data-act="sepakat" data-kode="${esc(t.kode)}" data-v="Ya" class="${t.disepakati === 'Ya' ? 'on-ok' : ''}">Disepakati</button>
           <button type="button" data-act="sepakat" data-kode="${esc(t.kode)}" data-v="Tidak" class="${t.disepakati === 'Tidak' ? 'on-bad' : ''}">Ditunda</button>
         </span>
-        ${t.disepakati === 'Ya' ? stChip(stK(t)) : ''}
+        ${t.disepakati === 'Ya' ? stChip(stK(t)) + stChip(stP(t)) : ''}
+        ${t.disepakati === 'Ya' || rantai(t) ? progChips(t) : ''}
         <span style="flex:1"></span>
         ${prioSel(t)}
         ${perluLanjut(t) ? `<button class="btn sm" data-act="lanjut" data-kode="${esc(t.kode)}" title="Buat task lanjutan (sisa pekerjaan) di minggu berikutnya">→ W${+t.minggu + 1}</button>` : ''}
@@ -795,6 +842,12 @@ function taskForm(t, isNew) {
     <label class="f">Rencana mulai<input type="date" name="mulai" value="${esc(t.mulai || '')}"></label>
     <label class="f">Rencana selesai<input type="date" name="selesai" value="${esc(t.selesai || '')}"></label>
   </div>
+  ${(() => { const roots = [...new Set(D.tasks.filter(x => x.kode !== t.kode && +x.minggu < +t.minggu).sort((a, b) => (b.pekerjaan === t.pekerjaan) - (a.pekerjaan === t.pekerjaan) || b.minggu - a.minggu).map(rootOf))].filter(k => k !== t.kode);
+    const cur = t.induk || (rootOf(t) !== t.kode ? rootOf(t) : '');
+    return `<div class="frow">
+    <label class="f">Bagian dari pekerjaan multi-minggu<select name="induk">${opt('', cur, 'Tidak – selesai dalam minggu ini')}${[...new Set([cur, ...roots].filter(Boolean))].map(k => { const x = D.tasks.find(y => y.kode === k); return opt(k, cur, `${k} · ${x ? (x.uraian.replace(LJ_RE, '').slice(0, 50) + ' (W' + x.minggu + ')') : ''}`); }).join('')}</select></label>
+    <label class="f">Porsi dari pekerjaan total (%)<input type="number" name="porsi" min="0" max="100" step="any" inputmode="decimal" value="${t.porsi ?? ''}" placeholder="kosong = otomatis"></label>
+  </div>`; })()}
   <div class="frow">
     <label class="f">Disepakati<select name="disepakati">${opt('', t.disepakati, 'Belum dibahas')}${opt('Ya', t.disepakati)}${opt('Tidak', t.disepakati)}</select></label>
     <label class="f">Prioritas<select name="prio">${opt('', t.prio, 'Normal')}${opt('Tinggi', t.prio)}${opt('Urgent', t.prio, 'URGENT')}</select></label>
@@ -831,7 +884,7 @@ function vReady() {
       <div class="meta"><span>W${t.minggu} · ${esc(t.disiplin)}</span><span>${esc(t.area)}${t.lokasi ? ' · ' + esc(t.lokasi) : ''}</span><span>PIC ${esc(t.pic || '–')}</span><span>${fmt(t.mulai)} → ${fmt(t.selesai)}</span>${prioSel(t)}</div>
       ${fuNote(t)}
       ${dokLine(t)}
-      <div style="display:flex;align-items:center;gap:8px;margin:8px 0"><div class="bar-h" style="flex:1"><i style="width:${Math.min(p || 0, 100)}%"></i></div><small class="muted">Progress ${p == null ? '0' : p}% (dari Daily Log)</small>${stK(t) === 'READY' && sp !== 'FINISH' ? `<button class="btn sm" data-act="daily-new" data-kode="${esc(t.kode)}">+ Janji harian</button>` : ''}</div>
+      <div style="display:flex;align-items:center;gap:8px;margin:8px 0"><div class="bar-h" style="flex:1"><i style="width:${Math.min(p || 0, 100)}%"></i></div><small class="muted">Progress ${p == null ? '0' : p}% (dari Daily Log)</small>${rantai(t) ? progChips(t).replace(/^<span[^>]*>[^<]*<\/span>/, '') : ''}${stK(t) === 'READY' && sp !== 'FINISH' ? `<button class="btn sm" data-act="daily-new" data-kode="${esc(t.kode)}">+ Janji harian</button>` : ''}</div>
       ${KK.map(k => {
         const c = t.k[k], pend = c.st === 'Pending', f = `task|${esc(t.kode)}|k.${k}.`;
         const over = pend && c.target && c.target < d;
@@ -1185,10 +1238,10 @@ function exportCSV(what) {
   if (what === 'tasks') {
     const h = ['Kode Task', 'Minggu Ke', 'Disiplin', 'Pekerjaan (Master Schedule)', 'Area Gedung', 'Uraian Pekerjaan', 'Lokasi / Area', 'PIC', 'Rencana Mulai', 'Rencana Selesai', 'Disepakati', 'Alasan / Catatan Rapat'];
     KK.forEach(k => h.push(KAT[k], 'Issue ' + KAT[k], 'Detail Issue ' + KAT[k], 'PIC ' + KAT[k], 'Target ' + KAT[k]));
-    h.push('Catatan Kendala', 'Progress (%)', 'Penyebab Terlambat', 'Status Kendala', 'Status Pelaksanaan', 'Prioritas', 'Koordinasi Disiplin', 'Catatan Follow-up');
+    h.push('Catatan Kendala', 'Progress (%)', 'Penyebab Terlambat', 'Status Kendala', 'Status Pelaksanaan', 'Prioritas', 'Koordinasi Disiplin', 'Catatan Follow-up', 'Induk (pekerjaan multi-minggu)', 'Porsi dari Total (%)', 'Progress Total (%)');
     const rows = D.tasks.map(t => [t.kode, t.minggu, t.disiplin, t.pekerjaan, t.area, t.uraian, t.lokasi, t.pic, t.mulai, t.selesai, t.disepakati, t.alasan,
       ...KK.flatMap(k => [t.k[k].st, t.k[k].issue, t.k[k].detail, t.k[k].pic, t.k[k].target]),
-      t.catatanKendala, prog(t.kode), t.penyebabTerlambat, t.disepakati === 'Ya' ? stK(t) : '', t.disepakati === 'Ya' ? stP(t) : '', t.prio, t.koord, t.followup]);
+      t.catatanKendala, prog(t.kode), t.penyebabTerlambat, t.disepakati === 'Ya' ? stK(t) : '', t.disepakati === 'Ya' ? stP(t) : '', t.prio, t.koord, t.followup, rantai(t)?.root ?? '', rantai(t) ? porsiEff(t) : t.porsi, rantai(t)?.total ?? '']);
     download(`LPS-Input_${tgl()}.csv`, csv([h, ...rows]), 'text/csv');
   } else {
     const h = ['Tanggal', 'Kode Task', 'Target Hari Ini', 'Bobot Target (% dari task)', '% Tercapai Harian (actual ÷ bobot)', 'Tercapai?', 'Progress s/d Kemarin', 'Kontribusi Hari Ini', 'Progress Kumulatif (%)', 'Penyebab Tidak Tercapai', 'Catatan', 'Detail Masalah', 'Tindak Lanjut', 'Jenis Waste (TIMWOODS)', 'Jam Hilang', 'Orang Terdampak', 'Jam-Orang Terbuang'];
@@ -1729,6 +1782,8 @@ function editTask(t, isNew) {
   openDlg(taskForm(t, isNew), fd => {
     const v = Object.fromEntries(fd.entries());
     v.minggu = +v.minggu;
+    v.porsi = nOr(v.porsi); if (v.porsi != null) v.porsi = Math.max(0, Math.min(100, v.porsi));
+    v.induk = v.induk === v.kode ? '' : (v.induk || '');
     v.koord = fd.getAll('koord').join(','); // checkbox: bisa lebih dari satu
     if (isNew && D.tasks.some(x => x.kode === v.kode)) { toast('Kode ' + v.kode + ' sudah dipakai'); return; }
     const p = D.pekerjaan.find(x => x.nama === v.pekerjaan);
@@ -1877,6 +1932,7 @@ document.addEventListener('click', e => {
     case 'tl-none': document.querySelectorAll('#tl-pick input:checked').forEach(c => { c.checked = false; }); tlFilter(); break;
     case 'tl-manual': { const w = $('#tl-w')?.value; if (w != null) UI.week = w; newTask(); break; } // isi dialog diganti form task biasa
     case 'tl-goto': UI.week = el.dataset.w; UI.wPilih = true; if (UI.view === 'komit') render(); break;
+    case 'rantai': e.preventDefault(); rantaiDlg(task); break;
     case 'kw': e.preventDefault(); UI.week = el.dataset.v; UI.wPilih = true; render(); break;
     case 'lanjut': { const n = lanjutkan(task); if (n) { save(); render(); toast(`${task.kode} dilanjutkan ke W${n.minggu} sebagai ${n.kode} – sepakati di rapat`); } break; }
     case 'lanjut-semua': {
