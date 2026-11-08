@@ -1,0 +1,31 @@
+{
+  "id": "./spv.html",
+  "name": "LPS SPV – Monitoring (hanya lihat)",
+  "short_name": "LPS SPV",
+  "description": "Monitoring LPS untuk SPV: Make Ready, target harian, issue & resource (hanya lihat)",
+  "lang": "id",
+  "start_url": "./spv.html#dash",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f6f9",
+  "theme_color": "#163a5f",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

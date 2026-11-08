@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="id" class="ro" data-mode="spv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LPS Monitoring SPV</title>
+<meta name="description" content="Monitoring Last Planner System – SPV (hanya lihat)">
+<meta name="theme-color" content="#163a5f">
+<link rel="manifest" href="manifest-spv.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <img src="icons/icon-192.png" alt="" width="28" height="28">
+    <div><b>LPS <span class="ro-tag">SPV · hanya lihat</span></b><small id="hdr-sub">memuat…</small></div>
+  </div>
+  <label class="wk"><span>Minggu</span>
+    <select id="f-week" aria-label="Filter minggu"></select>
+  </label>
+  <button class="sync off" id="sync" data-act="sync-now" aria-label="Status sinkron"></button>
+  <button class="icon-btn" data-act="settings" aria-label="Data &amp; pengaturan">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+  </button>
+</header>
+
+<main id="view" tabindex="-1"></main>
+
+<nav class="tabs" id="tabs">
+  <a href="#dash" data-v="dash"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg><span>Dashboard</span></a>
+  <a href="#jadwal" data-v="jadwal"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg><span>Jadwal</span></a>
+  <a href="#komit" data-v="komit"><svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><span>Komitmen</span></a>
+  <a href="#ready" data-v="ready"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z"/></svg><span>Make Ready</span></a>
+  <a href="#harian" data-v="harian"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Harian</span></a>
+  <a href="#issue" data-v="issue"><svg viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg><span>Issue</span><i id="issue-badge" hidden></i></a>
+  <a href="#sd" data-v="sd"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M15 3.5h5.5v7H15zM16.5 6h2.5M16.5 8h2.5"/></svg><span>Resource</span></a>
+</nav>
+
+<dialog id="dlg"><form method="dialog" id="dlg-form"></form></dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="print"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
