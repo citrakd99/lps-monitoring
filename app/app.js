@@ -171,7 +171,7 @@ async function fetchSeed() {
 }
 const MASTER_F = ['meta', 'pekerjaan', 'areas', 'areaMap', 'issues', 'penyebab', 'disiplin', 'source', 'exportedAt', 'mpPlan', 'dokSrc', 'timeline'];
 const blank = () => ({ meta: { project: '', tglUpdate: null, targetPPC: 0.8, weeks: [], scurve: [] }, pekerjaan: [], areas: [], areaMap: {},
-  issues: Object.fromEntries(KK.map(k => [k, []])), penyebab: [], disiplin: ['CSA', 'MEP', 'ARS', 'PRELIM'], tasks: [], daily: [], progress: [], mpPlan: [], manpower: [], dokumen: [], timeline: [], tlEdit: [] });
+  issues: Object.fromEntries(KK.map(k => [k, []])), penyebab: [], disiplin: ['CSA', 'MEP', 'ARS', 'PRELIM'], tasks: [], daily: [], progress: [], mpPlan: [], manpower: [], dokumen: [], timeline: [], tlEdit: [], jdEdit: [] });
 const hasMaster = () => D.meta.weeks.length > 0;
 function applyMaster(m) { // jadwal & referensi diganti; task, daily log, target PPC lokal dipertahankan
   const ppc = hasMaster() ? D.meta.targetPPC : m.meta.targetPPC;
@@ -246,6 +246,7 @@ function normalize(s) {
   // v22 ke bawah mengabaikan master.timeline tapi sudah mencatat versi master → tarik ulang master sekali
   if (!Array.isArray(s.timeline)) { s.timeline = []; s.sync.masterVer = ''; }
   s.tlEdit = (s.tlEdit || []).map(normTlE);
+  s.jdEdit = (s.jdEdit || []).map(normTlE);
   (s.daily || []).forEach(x => { // migrasi model lama tidak dihitung sebagai perubahan (agar baris yang dihapus tim tidak terkirim balik)
     const id = 'daily:' + x.id, sama = s.sync.h[id] === recHash(x);
     normDaily(x);
@@ -261,7 +262,7 @@ function save() { TLc = null; if (RO) { persist(); return; } stamp(); persist();
 /* ---------- sinkron tim (Google Sheets via Apps Script, lihat gas/Code.gs) ----------
    Setiap record (task / daily log) diberi _u (waktu ubah) & _by (nama). Perubahan dideteksi dengan
    membandingkan hash isi record, jadi semua aksi cukup memanggil save(). Konflik: _u terbaru menang. */
-const TBL = { tasks: 'kode', daily: 'id', progress: 'w', manpower: 'id', dokumen: 'id', tlEdit: 'id' };
+const TBL = { tasks: 'kode', daily: 'id', progress: 'w', manpower: 'id', dokumen: 'id', tlEdit: 'id', jdEdit: 'id' };
 const canon = v => Array.isArray(v) ? '[' + v.map(canon).join(',') + ']'
   : v && typeof v === 'object' ? '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + canon(v[k])).join(',') + '}' : JSON.stringify(v ?? null);
 const recHash = r => { const { _u, _by, ...rest } = r; return canon(rest); };
@@ -300,7 +301,7 @@ function applyRemote(res, force) {
     if (t === 'tasks' && !del && !('prio' in r)) { PRIO_T.forEach(f => { r[f] = i >= 0 ? arr[i][f] : ''; }); oldGas = true; }
     if (del) { if (i >= 0) { arr.splice(i, 1); n++; } delete S.h[id]; }
     else {
-      const rec = ({ tasks: normTask, daily: normDaily, progress: normProg, manpower: normMp, dokumen: normDok, tlEdit: normTlE })[t](r), h = recHash(rec);
+      const rec = ({ tasks: normTask, daily: normDaily, progress: normProg, manpower: normMp, dokumen: normDok, tlEdit: normTlE, jdEdit: normTlE })[t](r), h = recHash(rec);
       if (S.h[id] !== h) n++;
       if (i >= 0) arr[i] = rec; else arr.push(rec);
       S.h[id] = h;
@@ -391,7 +392,17 @@ function vSetup() { // belum ada jadwal: aplikasi publik sebelum terhubung ke Sh
   </div>`;
 }
 
+/* koreksi tanggal pekerjaan (tab Jadwal): master tetap utuh di _m0/_s0, tanggal efektif = koreksi tim (jdEdit, id = nama pekerjaan) */
+function applyJd() {
+  const E = Object.fromEntries((D.jdEdit || []).map(e => [e.id, e]));
+  for (const p of D.pekerjaan) {
+    if (p._m0 === undefined) { p._m0 = p.mulai ?? null; p._s0 = p.selesai ?? null; } // master baru → simpan tanggal asli
+    const e = E[p.nama];
+    p.mulai = e ? e.mulai : p._m0; p.selesai = e ? e.selesai : p._s0; p.ubah = !!e;
+  }
+}
 function render() {
+  applyJd();
   TLc = null;
   document.querySelector('.wk').hidden = !hasMaster();
   if (!hasMaster()) {
@@ -555,7 +566,8 @@ function vJadwal() {
         <div class="chips"><span class="chip">${esc(p.disiplin)}</span>${stChip(stJadwal(p))}</div></div>
       <div class="meta"><span>${fmt(p.mulai)} → ${fmt(p.selesai)}</span><span>W${weekOf(p.mulai) ?? '–'}–W${weekOf(p.selesai) ?? '–'}</span><span>Bobot ${p.bobot.toFixed(2)}%</span>
         <span>Task ${ts.length} · sepakat ${ok.length} · finish ${fin}${ok.length ? ' (' + pct(fin / ok.length) + ')' : ''}</span>${(() => { const A = TL().filter(a => a.pek === p.nama); return A.length ? `<span>⏱ timeline ${A.length} aktivitas · ${fmt(A.reduce((m, a) => a.mulai < m ? a.mulai : m, A[0].mulai))} → ${fmt(A.reduce((m, a) => a.selesai > m ? a.selesai : m, A[0].selesai))}</span>` : ''; })()}</div>
-      <div style="margin-top:8px"><button class="btn sm" data-act="task-new" data-pek="${esc(p.nama)}">+ Task komitmen</button></div>
+      ${p.ubah ? `<div class="fu">Tanggal diubah dari master ${fmt(p._m0)} → ${fmt(p._s0)}${(() => { const e = D.jdEdit.find(x => x.id === p.nama); return e ? `${e.catatan ? ' · ' + esc(e.catatan) : ''}${e._by ? ' · oleh ' + esc(e._by) : ''}` : ''; })()}</div>` : ''}
+      <div class="bar" style="margin:8px 0 0"><button class="btn sm" data-act="task-new" data-pek="${esc(p.nama)}">+ Task komitmen</button><button class="btn sm" data-act="jd-ubah" data-pek="${esc(p.nama)}">✎ Ubah tanggal</button></div>
     </div>`;
   }).join('') || '<div class="empty">Tidak ada pekerjaan pada filter ini.</div>'}`;
 }
@@ -647,6 +659,31 @@ function tlUbah(id) {
     D.tlEdit = D.tlEdit.filter(x => x.id !== String(a.id));
     if (m !== o.mulai || sl !== o.selesai) D.tlEdit.push({ id: String(a.id), mulai: m, selesai: sl, catatan: String(fd.get('catatan') || '').trim() });
     save(); render(); toast(m === o.mulai && sl === o.selesai ? 'Tanggal kembali sesuai PDF' : `Tanggal timeline diubah: ${fmt(m)} – ${fmt(sl)}`);
+  });
+}
+function jdUbah(nama) {
+  applyJd();
+  const p = D.pekerjaan.find(x => x.nama === nama), e = D.jdEdit.find(x => x.id === nama);
+  if (!p) return;
+  const ts = D.tasks.filter(t => t.pekerjaan === nama);
+  openDlg(`<h3>Ubah tanggal pekerjaan</h3>
+  <p style="margin:0 0 4px"><span class="code">${esc(p.kode)}</span> <b>${esc(p.nama.replace(/^\S+\s/, ''))}</b><br><small class="muted">${esc([p.bill, p.area, p.disiplin].filter(Boolean).join(' · '))}</small></p>
+  <p class="muted" style="font-size:13px">Tanggal di master: <b>${fmt(p._m0)} – ${fmt(p._s0)}</b>${e?._by ? ` · terakhir diubah ${esc(e._by)}` : ''}. Hanya mulai & selesai yang berubah; berlaku untuk seluruh tim (lookahead, status jadwal, PDF). Bobot & kurva-S tidak berubah.</p>
+  <div class="frow">
+    <label class="f">Mulai<input type="date" name="mulai" value="${esc(p.mulai || '')}" required></label>
+    <label class="f">Selesai<input type="date" name="selesai" value="${esc(p.selesai || '')}" required></label>
+  </div>
+  <label class="f">Alasan / catatan<input type="text" name="catatan" value="${esc(e?.catatan || '')}" placeholder="mis. ikut jadwal aktual, revisi baseline"></label>
+  ${ts.length ? `<p class="muted" style="font-size:13px">${ts.length} task komitmen di pekerjaan ini tidak ikut berubah; ubah tanggalnya di task masing-masing bila perlu.</p>` : ''}
+  <div class="dlg-act">${e ? `<button type="button" class="btn danger" data-act="jd-reset" data-pek="${esc(p.nama)}">Kembalikan ke master</button>` : ''}<span class="sp"></span>
+    <button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Simpan</button></div>`,
+  fd => {
+    const m = fd.get('mulai'), sl = fd.get('selesai');
+    if (!m || !sl || sl < m) { toast('Tanggal selesai tidak boleh sebelum mulai'); return; }
+    D.jdEdit = D.jdEdit.filter(x => x.id !== nama);
+    const sama = m === p._m0 && sl === p._s0;
+    if (!sama) D.jdEdit.push({ id: nama, mulai: m, selesai: sl, catatan: String(fd.get('catatan') || '').trim() });
+    save(); render(); toast(sama ? 'Tanggal kembali sesuai master' : `Tanggal pekerjaan diubah: ${fmt(m)} – ${fmt(sl)}`);
   });
 }
 function tlBuat(ids, w) {
@@ -1810,6 +1847,8 @@ document.addEventListener('click', e => {
     case 'pdf-jadwal': openDlg(pdfJadwalForm(), fd => printJadwal({ from: fd.get('from'), look: fd.get('look'), dis: fd.get('dis'), grp: fd.get('grp'), task: fd.has('task') })); break;
     case 'tl-pick': tlPick(el.dataset.w || tlWeek()); break;
     case 'tl-ubah': e.preventDefault(); tlUbah(el.dataset.id); break;
+    case 'jd-ubah': jdUbah(el.dataset.pek); break;
+    case 'jd-reset': D.jdEdit = D.jdEdit.filter(x => x.id !== el.dataset.pek); dlgSubmit = null; $('#dlg').close(); save(); render(); toast('Tanggal kembali sesuai master'); break;
     case 'tl-reset': D.tlEdit = D.tlEdit.filter(x => x.id !== el.dataset.id); dlgSubmit = null; $('#dlg').close(); save(); render(); toast('Tanggal kembali sesuai PDF'); break;
     case 'tl-add': { const t = tlBuat([el.dataset.id], +el.dataset.w)[0]; if (t) { render(); editTask({ ...t }, false); } break; }
     case 'tl-all': document.querySelectorAll('#tl-pick .pick-i:not([hidden]) input:not(:disabled)').forEach(c => { c.checked = true; }); tlFilter(); break;

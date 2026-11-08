@@ -46,6 +46,10 @@ var TABLES = {
     sheet: 'TimelineEdit', key: 'id',
     cols: ['id', 'mulai', 'selesai', 'catatan', '_u', '_by', '_del', '_rev']
   },
+  jdEdit: { // koreksi tanggal mulai/selesai pekerjaan di tab Jadwal (id = nama pekerjaan di master.pekerjaan)
+    sheet: 'JadwalEdit', key: 'id',
+    cols: ['id', 'mulai', 'selesai', 'catatan', '_u', '_by', '_del', '_rev']
+  },
   daily: {
     sheet: 'DailyLog', key: 'id',
     // tercapai & progress = kolom model lama (kosong); bobot & capaian (%) ditambah di akhir agar baris lama tetap sejajar
