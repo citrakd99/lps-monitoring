@@ -343,3 +343,8 @@ html.ro button:disabled[data-act] { opacity: 1; cursor: default; }
 .wst-c button { border: 1px solid var(--line); background: var(--surface); color: var(--text); border-radius: 99px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
 .wst-c button.on { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); font-weight: 600; }
 .wst-m td, .wst-m th { font-size: 12px; }
+
+/* Make Ready: kartu bisa diringkas */
+.hd.lipat { cursor: pointer; }
+.hd.lipat .lp { display: inline-block; width: 12px; color: var(--muted); }
+.item.tutup { padding-top: 8px; padding-bottom: 8px; }

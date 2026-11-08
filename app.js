@@ -21,7 +21,7 @@ function lsKunci(baru, akhir) {
 const KEY = RO ? lsKunci('lps-spv', 'spv') : lsKunci('lps-v1', 'v1');
 // aksi yang boleh di mode SPV: navigasi, filter, detail, sinkron (tarik)
 const RO_OK = new Set(['settings', 'sync-now', 'sync-off', 'sd-tab', 'mp-day', 'mp-all', 'dok-f', 'drv-load', 'dok-kat', 'dok-grp', 'dok-info',
-  'goto-dok', 'fprio', 'day', 'goto-ready', 'goto-komit', 'tl-goto', 'hmode', 'h-tab', 'log-goto', 'log-all', 'log-buka', 'kw', 'rantai']);
+  'goto-dok', 'fprio', 'day', 'goto-ready', 'goto-komit', 'tl-goto', 'hmode', 'h-tab', 'log-goto', 'log-all', 'log-buka', 'kw', 'rantai', 'r-tgl', 'r-all']);
 const RO_TAMPIL = new Set(['kst', 'sepakat', 'waste']); // tombol status: tetap terlihat (menunjukkan status) tapi nonaktif
 function roLock(root) {
   if (!RO || !root) return;
@@ -66,7 +66,7 @@ const opt = (v, cur, label) => `<option value="${esc(v)}"${String(v) === String(
 const pct = (x, d = 0) => x == null || isNaN(x) ? '–' : (x * 100).toFixed(d) + '%';
 
 let D = null;
-const UI = { hTab: '', lgFrom: null, lgTo: null, lgPeny: '', lgDis: '', lgPic: '', lgQ: '', lgAll: false, lgWaste: '', wBuka: {}, wPilih: false, view: 'dash', week: '', jSearch: '', jDis: '', jLook: '2', jFrom: null, harianTgl: null, focus: null, fPrio: '', sd: 'mp', mpTgl: null, mpAll: false, dokF: 'open', dokScope: '', dokJenis: '', dokSub: '', dokQ: '', dokTutup: [] };
+const UI = { hTab: '', lgFrom: null, lgTo: null, lgPeny: '', lgDis: '', lgPic: '', lgQ: '', lgAll: false, lgWaste: '', wBuka: {}, wPilih: false, rBuka: {}, view: 'dash', week: '', jSearch: '', jDis: '', jLook: '2', jFrom: null, harianTgl: null, focus: null, fPrio: '', sd: 'mp', mpTgl: null, mpAll: false, dokF: 'open', dokScope: '', dokJenis: '', dokSub: '', dokQ: '', dokTutup: [] };
 
 /* ---------- tanggal ---------- */
 const todayISO = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
@@ -863,6 +863,8 @@ function taskForm(t, isNew) {
 }
 
 /* ---------- MAKE READY (LPS Input + Board 2) ---------- */
+// Make Ready: task READY diringkas (judul + progres), PENDING / LATE terbuka; pilihan buka/tutup diingat selama sesi
+const rBuka = t => UI.rBuka[t.kode] ?? (stK(t) === 'PENDING' || stP(t) === 'LATE / DELAY');
 function vReady() {
   const ts = planTasks();
   const cnt = k => ts.filter(t => t.k[k].st === 'Pending').length;
@@ -875,16 +877,20 @@ function vReady() {
     ${KK.map(k => `<div class="kpi ${cnt(k) ? 'warn' : ''}"><b>${cnt(k)}</b><span>Pending ${KAT[k]}</span></div>`).join('')}
     <div class="kpi ok"><b>${ts.filter(t => stK(t) === 'READY').length}</b><span>Task Ready to Work</span></div>
   </div>
+  <div class="bar"><span class="muted" style="font-size:13px;flex:1">Task READY otomatis diringkas – ketuk judul untuk membuka.</span>
+    <button class="btn sm" data-act="r-all" data-v="1">Buka semua</button><button class="btn sm" data-act="r-all" data-v="0">Ringkas semua</button></div>
   ${ts.filter(prioOK).sort((a, b) => byPrio(a, b) || (stK(a) === 'PENDING' ? 0 : 1) - (stK(b) === 'PENDING' ? 0 : 1) || a.kode.localeCompare(b.kode)).map(t => {
-    const p = prog(t.kode), sp = stP(t);
-    return `<div class="item" id="r-${esc(t.kode)}">
-      <div class="hd"><div><span class="code">${esc(t.kode)}</span> <span class="ttl">${esc(t.uraian)}</span>
-        <div class="sub">${esc(t.pekerjaan)}</div></div>
+    const p = prog(t.kode), sp = stP(t), buka = rBuka(t);
+    const progLine = `<div style="display:flex;align-items:center;gap:8px;margin:8px 0 ${buka ? 8 : 0}px"><div class="bar-h" style="flex:1"><i style="width:${Math.min(p || 0, 100)}%"></i></div><small class="muted">Progress ${p == null ? '0' : p}%${buka ? ' (dari Daily Log)' : ''}</small>${rantai(t) ? progChips(t).replace(/^<span[^>]*>[^<]*<\/span>/, '') : ''}${stK(t) === 'READY' && sp !== 'FINISH' ? `<button class="btn sm" data-act="daily-new" data-kode="${esc(t.kode)}">+ Janji harian</button>` : ''}</div>`;
+    return `<div class="item${buka ? '' : ' tutup'}" id="r-${esc(t.kode)}">
+      <div class="hd lipat" data-act="r-tgl" data-kode="${esc(t.kode)}" role="button" aria-expanded="${buka}"><div><span class="lp">${buka ? '▾' : '▸'}</span> <span class="code">${esc(t.kode)}</span> <span class="ttl">${esc(t.uraian)}</span>
+        <div class="sub">${esc(t.pekerjaan)}${buka ? '' : ` · W${t.minggu} · PIC ${esc(t.pic || '–')}`}</div></div>
         <div class="chips">${prioChips(t)}${stChip(stK(t))}${stChip(sp)}</div></div>
-      <div class="meta"><span>W${t.minggu} · ${esc(t.disiplin)}</span><span>${esc(t.area)}${t.lokasi ? ' · ' + esc(t.lokasi) : ''}</span><span>PIC ${esc(t.pic || '–')}</span><span>${fmt(t.mulai)} → ${fmt(t.selesai)}</span>${prioSel(t)}</div>
+      ${buka ? '' : progLine}
+      ${!buka ? '' : `<div class="meta"><span>W${t.minggu} · ${esc(t.disiplin)}</span><span>${esc(t.area)}${t.lokasi ? ' · ' + esc(t.lokasi) : ''}</span><span>PIC ${esc(t.pic || '–')}</span><span>${fmt(t.mulai)} → ${fmt(t.selesai)}</span>${prioSel(t)}</div>
       ${fuNote(t)}
       ${dokLine(t)}
-      <div style="display:flex;align-items:center;gap:8px;margin:8px 0"><div class="bar-h" style="flex:1"><i style="width:${Math.min(p || 0, 100)}%"></i></div><small class="muted">Progress ${p == null ? '0' : p}% (dari Daily Log)</small>${rantai(t) ? progChips(t).replace(/^<span[^>]*>[^<]*<\/span>/, '') : ''}${stK(t) === 'READY' && sp !== 'FINISH' ? `<button class="btn sm" data-act="daily-new" data-kode="${esc(t.kode)}">+ Janji harian</button>` : ''}</div>
+      ${progLine}
       ${KK.map(k => {
         const c = t.k[k], pend = c.st === 'Pending', f = `task|${esc(t.kode)}|k.${k}.`;
         const over = pend && c.target && c.target < d;
@@ -903,7 +909,7 @@ function vReady() {
         </div>`;
       }).join('')}
       ${sp === 'LATE / DELAY' ? `<label class="f" style="margin-top:8px">Penyebab terlambat<select data-f="task|${esc(t.kode)}|penyebabTerlambat" class="${t.penyebabTerlambat ? '' : 'need'}">${opt('', t.penyebabTerlambat, '– pilih –')}${D.penyebab.map(x => opt(x, t.penyebabTerlambat)).join('')}</select></label>` : ''}
-      <input type="text" style="margin-top:8px" placeholder="Catatan kendala" value="${esc(t.catatanKendala)}" data-f="task|${esc(t.kode)}|catatanKendala">
+      <input type="text" style="margin-top:8px" placeholder="Catatan kendala" value="${esc(t.catatanKendala)}" data-f="task|${esc(t.kode)}|catatanKendala">`}
     </div>`;
   }).join('') || '<div class="empty">Belum ada task yang disepakati. Buka tab <a href="#komit">Komitmen</a>.</div>'}`;
 }
@@ -1994,7 +2000,9 @@ document.addEventListener('click', e => {
       break;
     }
     case 'day': UI.harianTgl = addDays(UI.harianTgl || tgl(), +el.dataset.n); render(); break;
-    case 'goto-ready': UI.focus = 'r-' + kode; if (UI.view === 'ready') render(); break;
+    case 'r-tgl': UI.rBuka[kode] = !rBuka(task); render(); break;
+    case 'r-all': planTasks().forEach(t => { UI.rBuka[t.kode] = el.dataset.v === '1'; }); render(); break;
+    case 'goto-ready': UI.rBuka[kode] = true; UI.focus = 'r-' + kode; if (UI.view === 'ready') render(); break;
     case 'goto-komit': UI.focus = 'k-' + kode; if (UI.view === 'komit') render(); break;
     case 'exp-json': download(`LPS_backup_${tgl()}.json`, JSON.stringify({ ...D, sync: undefined }, null, 1), 'application/json'); break; // tanpa kode akses
     case 'sync-now': syncNow(true); break;
