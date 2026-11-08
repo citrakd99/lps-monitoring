@@ -21,8 +21,8 @@ function lsKunci(baru, akhir) {
 const KEY = RO ? lsKunci('lps-spv', 'spv') : lsKunci('lps-v1', 'v1');
 // aksi yang boleh di mode SPV: navigasi, filter, detail, sinkron (tarik)
 const RO_OK = new Set(['settings', 'sync-now', 'sync-off', 'sd-tab', 'mp-day', 'mp-all', 'dok-f', 'drv-load', 'dok-kat', 'dok-grp', 'dok-info',
-  'goto-dok', 'fprio', 'day', 'goto-ready', 'goto-komit', 'tl-goto', 'hmode', 'h-tab', 'log-goto', 'log-all']);
-const RO_TAMPIL = new Set(['kst', 'sepakat']); // tombol status: tetap terlihat (menunjukkan status) tapi nonaktif
+  'goto-dok', 'fprio', 'day', 'goto-ready', 'goto-komit', 'tl-goto', 'hmode', 'h-tab', 'log-goto', 'log-all', 'log-buka']);
+const RO_TAMPIL = new Set(['kst', 'sepakat', 'waste']); // tombol status: tetap terlihat (menunjukkan status) tapi nonaktif
 function roLock(root) {
   if (!RO || !root) return;
   root.querySelectorAll('[data-act]').forEach(el => {
@@ -35,6 +35,27 @@ function roLock(root) {
   root.querySelectorAll('input, select, textarea').forEach(el => { if (!el.dataset.ui && !RO_OK.has(el.dataset.act) && el.type !== 'search' && !el.closest('.ro-ok')) el.disabled = true; });
 }
 const KAT = { eng: 'Engineering / HSE', mat: 'Material & Alat', mp: 'Man Power', oth: 'Other' };
+/* TIMWOODS: 8 jenis pemborosan (lean) di janji harian, + X = bukan waste / faktor eksternal (cuaca dll.) */
+const WASTE = {
+  T: ['Transportation', 'Material dipindah berkali-kali, stockyard jauh, double handling'],
+  I: ['Inventory', 'Material menumpuk / rusak di site, pekerjaan setengah jadi menggantung'],
+  M: ['Motion', 'Bolak-balik ambil alat, cari gambar, pindah-pindah scaffolding'],
+  W: ['Waiting', 'Menunggu material, alat, approval, inspeksi, ijin, pekerjaan pendahulu'],
+  OP: ['Overproduction', 'Mengerjakan yang belum dibutuhkan / area belum siap, fabrikasi berlebih'],
+  OV: ['Over-processing', 'Melebihi spek, laporan / inspeksi ganda, kerja ulang karena perubahan'],
+  D: ['Defects', 'Rework, NCR, punch list, gagal test'],
+  S: ['Skills', 'Keahlian tidak dipakai, tidak dilibatkan dalam perencanaan, kurang training'],
+  X: ['Bukan waste', 'Faktor eksternal, mis. cuaca']
+};
+const wasteL = x => String(x.waste || '').split(',').filter(k => WASTE[k]);
+const wNama = k => (k === 'X' ? '' : k[0] + ' · ') + WASTE[k][0];
+const isWaste = x => wasteL(x).some(k => k !== 'X');
+const jamOrang = x => x.jamHilang == null ? null : r6(x.jamHilang * (x.orang || 1)); // jam hilang × orang terdampak
+const r1 = v => Math.round(v * 10) / 10;
+// saran awal dari penyebab (bisa diganti di janji)
+const WASTE_SARAN = [[/cuaca|hujan/i, 'X'], [/produktiv/i, 'M'], [/instruksi|perubahan.*owner|revisi/i, 'OV'], [/prioritas/i, 'OP'], [/rework|cacat|ncr|defect/i, 'D'],
+  [/material|alat|tenaga|pendahulu|ijin|izin|hse|akses|area|engineering|desain/i, 'W']];
+const saranWaste = p => (WASTE_SARAN.find(([re]) => re.test(p || '')) || [])[1] || '';
 const KK = Object.keys(KAT);
 const BLN = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 const VIEWS = ['dash', 'jadwal', 'komit', 'ready', 'harian', 'issue', 'sd'];
@@ -45,7 +66,7 @@ const opt = (v, cur, label) => `<option value="${esc(v)}"${String(v) === String(
 const pct = (x, d = 0) => x == null || isNaN(x) ? '–' : (x * 100).toFixed(d) + '%';
 
 let D = null;
-const UI = { hTab: '', lgFrom: null, lgTo: null, lgPeny: '', lgDis: '', lgPic: '', lgQ: '', lgAll: false, view: 'dash', week: '', jSearch: '', jDis: '', jLook: '2', jFrom: null, harianTgl: null, focus: null, fPrio: '', sd: 'mp', mpTgl: null, mpAll: false, dokF: 'open', dokScope: '', dokJenis: '', dokSub: '', dokQ: '', dokTutup: [] };
+const UI = { hTab: '', lgFrom: null, lgTo: null, lgPeny: '', lgDis: '', lgPic: '', lgQ: '', lgAll: false, lgWaste: '', wBuka: {}, view: 'dash', week: '', jSearch: '', jDis: '', jLook: '2', jFrom: null, harianTgl: null, focus: null, fPrio: '', sd: 'mp', mpTgl: null, mpAll: false, dokF: 'open', dokScope: '', dokJenis: '', dokSub: '', dokQ: '', dokTutup: [] };
 
 /* ---------- tanggal ---------- */
 const todayISO = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
@@ -211,8 +232,8 @@ function simpanAktual(fd) {
   toast(n ? `Actual progress disimpan (${n} minggu)${turun ? ` · ⚠ W${turun.w} lebih kecil dari minggu sebelumnya` : ''}` : 'Tidak ada perubahan');
 }
 function normDaily(x) {
-  ['target', 'penyebab', 'catatan', 'masalah', 'tindakan'].forEach(f => { x[f] = x[f] ?? ''; });
-  x.bobot = nOr(x.bobot); x.capaian = nOr(x.capaian);
+  ['target', 'penyebab', 'catatan', 'masalah', 'tindakan', 'waste'].forEach(f => { x[f] = x[f] ?? ''; });
+  x.bobot = nOr(x.bobot); x.capaian = nOr(x.capaian); x.jamHilang = nOr(x.jamHilang); x.orang = nOr(x.orang);
   delete x.tercapai; delete x.progress; // model lama: kini dihitung dari bobot & % tercapai
   return x;
 }
@@ -275,6 +296,7 @@ function applyRemote(res, force) {
     const arr = D[t], i = arr.findIndex(x => String(x[key]) === String(r[key]));
     if (t === 'tasks' && !del && !('bl' in r) && i >= 0 && arr[i].bl) r.bl = arr[i].bl;
     if (t === 'daily' && !del && !('masalah' in r) && i >= 0) { r.masalah = arr[i].masalah; r.tindakan = arr[i].tindakan; } // Code.gs lama: kolom log masalah belum ada
+    if (t === 'daily' && !del && !('waste' in r) && i >= 0) { r.waste = arr[i].waste; r.jamHilang = arr[i].jamHilang; r.orang = arr[i].orang; } // Code.gs lama: kolom TIMWOODS belum ada
     if (t === 'tasks' && !del && !('prio' in r)) { PRIO_T.forEach(f => { r[f] = i >= 0 ? arr[i][f] : ''; }); oldGas = true; }
     if (del) { if (i >= 0) { arr.splice(i, 1); n++; } delete S.h[id]; }
     else {
@@ -418,6 +440,7 @@ function vDash() {
   </div>
 
   ${msCard()}
+  ${wasteCard()}
   ${fu.length ? `<div class="card">
     <h3>Task prioritas & koordinasi disiplin</h3>
     ${fu.slice(0, 8).map(t => `<div style="padding:6px 0;border-bottom:1px solid var(--line)">
@@ -458,6 +481,16 @@ function vDash() {
         </div>`).join('') + `<p><a href="#issue">Lihat semua (${iss.length}) →</a></p>` : '<p class="muted">Tidak ada kendala pending. 👍</p>'}
     </div>
   </div>`;
+}
+
+// Dashboard: 3 waste terbesar minggu ini (jam-orang, lalu kejadian)
+function wasteCard() {
+  if (!D.daily.some(isWaste)) return '';
+  const cw = weekOf(tgl()), byK = Object.fromEntries(D.tasks.map(t => [t.kode, t]));
+  const R = D.daily.filter(x => weekOf(x.tgl) === cw && x.tgl <= tgl() && isWaste(x)).map(x => ({ x, t: byK[x.kode] }));
+  const par = wastePar(R).filter(([k]) => k !== 'X'), jo = R.reduce((s, r) => s + (jamOrang(r.x) || 0), 0);
+  return `<div class="card"><div class="vh"><h3 style="margin:0">Top 3 waste minggu ini (W${cw})</h3><a href="#harian" data-act="log-buka" style="font-size:13px">Log masalah →</a></div>
+    ${par.length ? `${wasteParH(par.slice(0, 3))}<p class="muted" style="font-size:12px;margin:4px 0 0">${R.length} janji dengan pemborosan · ${r1(jo)} jam-orang terbuang minggu ini</p>` : '<p class="muted">Belum ada pemborosan tercatat minggu ini.</p>'}</div>`;
 }
 
 function sCurve() {
@@ -767,7 +800,19 @@ function vReady() {
 // = kolom Cek di Daily Log
 const cek = (x, t) => !t ? '⚠ Kode tidak ada' : stK(t) !== 'READY' ? '⚠ Task belum READY' : !x.target || x.bobot == null ? '⚠ Isi target & bobot'
   : x.bobot > sisaTask(x) + 0.01 ? '⚠ Bobot > sisa task' : x.capaian == null ? 'Menunggu laporan sore'
-  : tercapai(x) === 'Tidak' && !x.penyebab ? '⚠ Isi penyebab' : 'OK';
+  : tercapai(x) === 'Tidak' && !x.penyebab ? '⚠ Isi penyebab' : tercapai(x) === 'Tidak' && !wasteL(x).length ? '⚠ Isi jenis waste' : 'OK';
+// pilihan TIMWOODS di kartu janji: wajib bila tidak tercapai, opsional ("Ada pemborosan?") bila tercapai
+function wasteBox(x, f, wajib) {
+  const on = wasteL(x);
+  if (!wajib && !on.length && !UI.wBuka[x.id]) return `<button type="button" class="btn sm" data-act="waste-buka" data-id="${x.id}" style="margin-bottom:8px">+ Ada pemborosan? (TIMWOODS)</button>`;
+  return `<div class="f wst"><span>Jenis waste (TIMWOODS)${wajib ? '' : ' · opsional, walau target tercapai'}</span>
+    <div class="wst-c">${Object.keys(WASTE).map(k => `<button type="button" class="${on.includes(k) ? 'on' : ''}${wajib && !on.length ? ' need' : ''}" data-act="waste" data-id="${x.id}" data-v="${k}" title="${esc(WASTE[k][1])}">${esc(wNama(k))}</button>`).join('')}</div>
+    ${on.length ? `<p class="muted" style="font-size:12px;margin:0 0 6px">${on.map(k => esc(WASTE[k][0] + ': ' + WASTE[k][1])).join('<br>')}</p>` : ''}
+    ${isWaste(x) ? `<div class="frow">
+      <label class="f">Jam hilang<input type="number" min="0" max="24" step="any" inputmode="decimal" value="${x.jamHilang ?? ''}" data-f="${f}jamHilang" placeholder="mis. 2"></label>
+      <label class="f">Orang terdampak<input type="number" min="0" max="500" step="1" inputmode="numeric" value="${x.orang ?? ''}" data-f="${f}orang" placeholder="mis. 6"></label></div>
+      ${jamOrang(x) != null ? `<p class="muted" style="font-size:12px;margin:-4px 0 8px">≈ <b>${r1(jamOrang(x))}</b> jam-orang terbuang</p>` : ''}` : ''}</div>`;
+}
 function janjiCard(x, t, no, n) {
   const c = cek(x, t), f = `daily|${x.id}|`, kem = progKemarin(x), lain = r6(progSebelum(x) - kem);
   return `<div class="janji">
@@ -780,8 +825,9 @@ function janjiCard(x, t, no, n) {
       </div>
       <p class="muted" style="font-size:13px;margin:0 0 8px">${x.capaian == null ? '' : `Tercapai ${pc(x.capaian)} dari target (actual ${pc(aktual(x))} ÷ bobot ${pc(x.bobot)}) · `}Progress s/d kemarin ${pc(kem)}${samaHari(x).length ? ` + janji lain hari ini ${pc(lain)}` : ''} + actual ${pc(kontrib(x))} = <b>kumulatif ${pc(progKum(x))}</b> · sisa task ${pc(Math.max(0, sisaTask(x)))}</p>
       ${tercapai(x) === 'Tidak' ? `<label class="f">Penyebab tidak tercapai<select data-f="${f}penyebab" class="${x.penyebab ? '' : 'need'}">${opt('', x.penyebab, '– pilih –')}${D.penyebab.map(p => opt(p, x.penyebab)).join('')}</select></label>
+      ${wasteBox(x, f, true)}
       <label class="f">Detail masalah (log)<textarea rows="2" data-f="${f}masalah" placeholder="Apa yang terjadi, di mana, berapa lama, dampaknya">${esc(x.masalah)}</textarea></label>
-      <label class="f">Tindak lanjut / rencana perbaikan<input type="text" value="${esc(x.tindakan)}" data-f="${f}tindakan" placeholder="mis. tambah 4 orang besok, minta material dikirim pagi"></label>` : ''}
+      <label class="f">Tindak lanjut / rencana perbaikan<input type="text" value="${esc(x.tindakan)}" data-f="${f}tindakan" placeholder="mis. tambah 4 orang besok, minta material dikirim pagi"></label>` : tercapai(x) === 'Ya' ? wasteBox(x, f, false) : ''}
       <div class="bar" style="margin:0"><input class="grow" type="text" placeholder="Catatan" value="${esc(x.catatan)}" data-f="${f}catatan"><button class="btn sm danger" data-act="daily-del" data-id="${x.id}">Hapus</button></div>
   </div>`;
 }
@@ -867,22 +913,39 @@ function vHarian() {
 }
 
 /* ---------- LOG MASALAH HARIAN: riwayat janji yang tidak tercapai (dan opsional belum dilaporkan) per tanggal ---------- */
-const lgOpt = () => ({ from: UI.lgFrom || addDays(tgl(), -13), to: UI.lgTo || tgl(), peny: UI.lgPeny, dis: UI.lgDis, pic: UI.lgPic, q: UI.lgQ, all: UI.lgAll });
+const lgOpt = () => ({ from: UI.lgFrom || addDays(tgl(), -13), to: UI.lgTo || tgl(), peny: UI.lgPeny, dis: UI.lgDis, pic: UI.lgPic, q: UI.lgQ, all: UI.lgAll, waste: UI.lgWaste });
 function logRows(o) {
   const byK = Object.fromEntries(D.tasks.map(t => [t.kode, t])), q = String(o.q || '').toLowerCase().trim();
   return D.daily.filter(x => x.tgl >= o.from && x.tgl <= o.to && x.tgl <= tgl())
-    .filter(x => tercapai(x) === 'Tidak' || (o.all && x.capaian == null))
+    .filter(x => tercapai(x) === 'Tidak' || (x.capaian != null && wasteL(x).length) || (o.all && x.capaian == null)) // + janji tercapai yang mencatat pemborosan
     .map(x => ({ x, t: byK[x.kode] }))
-    .filter(({ x, t }) => (!o.peny || (x.penyebab || '(belum diisi)') === o.peny) && (!o.dis || t?.disiplin === o.dis) && (!o.pic || (t?.pic || '') === o.pic)
-      && (!q || [x.kode, t?.uraian, t?.lokasi, t?.pekerjaan, x.target, x.penyebab, x.masalah, x.tindakan, x.catatan].join(' ').toLowerCase().includes(q)))
+    .filter(({ x, t }) => (!o.peny || (x.penyebab || '(belum diisi)') === o.peny) && (!o.dis || t?.disiplin === o.dis) && (!o.pic || (t?.pic || '') === o.pic) && (!o.waste || wasteL(x).includes(o.waste))
+      && (!q || [x.kode, t?.uraian, t?.lokasi, t?.pekerjaan, x.target, x.penyebab, x.masalah, x.tindakan, x.catatan, ...wasteL(x).map(k => WASTE[k][0])].join(' ').toLowerCase().includes(q)))
     .sort((a, b) => b.x.tgl.localeCompare(a.x.tgl) || a.x.kode.localeCompare(b.x.kode));
 }
 const logStat = o => { const n = D.daily.filter(x => x.tgl >= o.from && x.tgl <= o.to && x.tgl <= tgl()), lap = n.filter(x => tercapai(x));
   return { n: n.length, tidak: lap.filter(x => tercapai(x) === 'Tidak').length, lap: lap.length, belum: n.length - lap.length }; };
+// TIMWOODS per periode: kejadian & jam-orang (jam-orang dibagi rata bila 1 janji punya >1 waste)
+const wastePar = rows => { const p = {}; rows.forEach(({ x }) => { const L = wasteL(x); L.forEach(k => { const a = p[k] || (p[k] = { n: 0, jo: 0 }); a.n++; a.jo += (jamOrang(x) || 0) / L.length; }); });
+  return Object.entries(p).sort((a, b) => (a[0] === 'X') - (b[0] === 'X') || b[1].jo - a[1].jo || b[1].n - a[1].n); };
+const wasteParH = par => { if (!par.length) return '<p class="muted">Belum ada waste tercatat.</p>';
+  const mj = Math.max(...par.map(([, a]) => a.jo)), mn = Math.max(...par.map(([, a]) => a.n));
+  return par.map(([k, a]) => `<div style="margin:6px 0"><div style="display:flex;justify-content:space-between;font-size:13px"><span title="${esc(WASTE[k][1])}">${esc(wNama(k))}</span><span class="muted">${a.n}×${a.jo ? ` · ${r1(a.jo)} jam-orang` : ''}</span></div><div class="bar-h"><i style="width:${mj ? a.jo / mj * 100 : a.n / mn * 100}%;background:${k === 'X' ? 'var(--muted)' : 'var(--warn)'}"></i></div></div>`).join(''); };
+// matriks penyebab × waste: sumber pemborosan terbesar
+function wasteMat(rows) {
+  const R = rows.filter(r => wasteL(r.x).length), ks = Object.keys(WASTE).filter(k => R.some(r => wasteL(r.x).includes(k)));
+  if (!R.length) return '';
+  const pk = r => r.x.penyebab || (tercapai(r.x) === 'Ya' ? '(tercapai)' : '(tanpa penyebab)'), ps = [...new Set(R.map(pk))];
+  return `<div class="scroll"><table class="tbl wst-m"><tr><th>Penyebab \\ waste</th>${ks.map(k => `<th class="n" title="${esc(WASTE[k][0])}">${k}</th>`).join('')}</tr>
+    ${ps.map(p => `<tr><td>${esc(p)}</td>${ks.map(k => { const n = R.filter(r => pk(r) === p && wasteL(r.x).includes(k)).length; return `<td class="n">${n || ''}</td>`; }).join('')}</tr>`).join('')}</table></div>`;
+}
 const pareto = rows => { const p = {}; rows.filter(r => tercapai(r.x) === 'Tidak').forEach(({ x }) => { const k = x.penyebab || '(belum diisi)'; p[k] = (p[k] || 0) + 1; }); return Object.entries(p).sort((a, b) => b[1] - a[1]); };
 function vLog() {
   const o = lgOpt(), L = logRows(o), S = logStat(o), par = pareto(L), parT = par.reduce((s, x) => s + x[1], 0);
   const tdk = L.filter(r => tercapai(r.x) === 'Tidak'), tanpaDetail = tdk.filter(r => !r.x.masalah).length;
+  const wp = wastePar(L), jo = L.reduce((s, r) => s + (isWaste(r.x) ? jamOrang(r.x) || 0 : 0), 0), tanpaW = tdk.filter(r => !wasteL(r.x).length).length;
+  const bocor = tdk.filter(r => wasteL(r.x).includes('W') && r.t && stK(r.t) === 'READY').length; // Waiting padahal sudah READY = make ready bocor
+  const bisaSaran = D.daily.filter(x => tercapai(x) === 'Tidak' && !wasteL(x).length && saranWaste(x.penyebab)).length;
   const penyL = [...new Set([...D.penyebab, ...L.map(r => r.x.penyebab || '(belum diisi)')])], picL = [...new Set(D.tasks.map(t => t.pic).filter(Boolean))].sort();
   let h = '', d = null;
   for (const { x, t } of L) {
@@ -891,9 +954,9 @@ function vLog() {
     h += `<div class="item lg-i" data-act="log-goto" data-tgl="${x.tgl}" data-kode="${esc(x.kode)}">
       <div class="hd"><div><span class="code">${esc(x.kode)}</span> <span class="ttl">${esc(t?.uraian || '(task tidak ada)')}</span>
         <div class="sub">${esc([t?.lokasi, t?.disiplin, t?.pic && 'PIC ' + t.pic].filter(Boolean).join(' · '))}</div></div>
-        <div class="chips">${belum ? '<span class="chip warn">belum dilaporkan</span>' : `<span class="chip bad">tercapai ${pc(x.capaian)}</span>`}${x.penyebab ? `<span class="chip">${esc(x.penyebab)}</span>` : belum ? '' : '<span class="chip warn">penyebab belum diisi</span>'}</div></div>
-      <div class="meta"><span>Target: <b>${esc(x.target || '–')}</b></span><span>Bobot ${pc(x.bobot)} → actual ${belum ? '–' : pc(aktual(x))}</span></div>
-      ${x.masalah ? `<div class="lg-t"><b>Masalah:</b> ${esc(x.masalah)}</div>` : belum ? '' : '<div class="lg-t muted">Detail masalah belum diisi</div>'}
+        <div class="chips">${belum ? '<span class="chip warn">belum dilaporkan</span>' : `<span class="chip ${tercapai(x) === 'Ya' ? 'ok' : 'bad'}">tercapai ${pc(x.capaian)}</span>`}${wasteL(x).map(k => `<span class="chip ${k === 'X' ? '' : 'warn'}" title="${esc(WASTE[k][1])}">${esc(wNama(k))}</span>`).join('')}${x.penyebab ? `<span class="chip">${esc(x.penyebab)}</span>` : belum || tercapai(x) === 'Ya' ? '' : '<span class="chip warn">penyebab belum diisi</span>'}</div></div>
+      <div class="meta"><span>Target: <b>${esc(x.target || '–')}</b></span><span>Bobot ${pc(x.bobot)} → actual ${belum ? '–' : pc(aktual(x))}</span>${isWaste(x) && jamOrang(x) != null ? `<span>Terbuang <b>${r1(jamOrang(x))} jam-orang</b></span>` : ''}</div>
+      ${x.masalah ? `<div class="lg-t"><b>Masalah:</b> ${esc(x.masalah)}</div>` : tercapai(x) === 'Tidak' ? '<div class="lg-t muted">Detail masalah belum diisi</div>' : ''}
       ${x.tindakan ? `<div class="lg-t"><b>Tindak lanjut:</b> ${esc(x.tindakan)}</div>` : ''}
       ${x.catatan ? `<div class="lg-t muted">Catatan: ${esc(x.catatan)}</div>` : ''}
     </div>`;
@@ -906,6 +969,7 @@ function vLog() {
     <select data-ui="lgPeny" style="width:auto">${opt('', o.peny, 'Semua penyebab')}${penyL.map(p => opt(p, o.peny)).join('')}</select>
     <select data-ui="lgDis" style="width:auto">${opt('', o.dis, 'Semua disiplin')}${D.disiplin.map(p => opt(p, o.dis)).join('')}</select>
     <select data-ui="lgPic" style="width:auto">${opt('', o.pic, 'Semua PIC')}${picL.map(p => opt(p, o.pic)).join('')}</select>
+    <select data-ui="lgWaste" style="width:auto">${opt('', o.waste, 'Semua waste')}${Object.keys(WASTE).map(k => opt(k, o.waste, wNama(k))).join('')}</select>
     <input type="search" data-ui="lgQ" value="${esc(o.q)}" placeholder="Cari task / masalah / tindakan" style="flex:1;min-width:160px">
     <label class="muted" style="font-size:13px"><input type="checkbox" data-act="log-all" ${o.all ? 'checked' : ''} style="width:auto;min-height:0"> sertakan janji belum dilaporkan</label>
   </div>
@@ -914,11 +978,18 @@ function vLog() {
     <div class="kpi bad"><b>${S.tidak}</b><span>Tidak tercapai${S.lap ? ' · ' + pct(S.tidak / S.lap) + ' dari yang dilaporkan' : ''}</span></div>
     <div class="kpi warn"><b>${S.belum}</b><span>Belum dilaporkan</span></div>
     <div class="kpi ${tanpaDetail ? 'warn' : 'ok'}"><b>${tanpaDetail}</b><span>Tidak tercapai tanpa detail masalah</span></div>
+    <div class="kpi ${jo ? 'bad' : ''}"><b>${r1(jo)}</b><span>Jam-orang terbuang (TIMWOODS)</span></div>
+    <div class="kpi ${bocor ? 'bad' : 'ok'}"><b>${bocor}</b><span>Waiting padahal task READY · make ready bocor</span></div>
+    <div class="kpi ${tanpaW ? 'warn' : 'ok'}"><b>${tanpaW}</b><span>Tidak tercapai tanpa jenis waste</span></div>
   </div>
+  ${bisaSaran ? `<div class="bar"><button class="btn sm" data-act="waste-saran">Isi jenis waste otomatis dari penyebab (${bisaSaran} janji lama)</button><span class="muted" style="font-size:12px">Saran awal – periksa & ubah di janjinya bila perlu</span></div>` : ''}
   <div class="two"><div>${h || '<div class="empty">Tidak ada masalah tercatat untuk filter ini.</div>'}</div>
     <div class="card"><h3>Pareto penyebab (periode ini)</h3>
     ${par.length ? (() => { let cum = 0; return par.map(([k, v]) => { cum += v; return `<div style="margin:6px 0"><div style="display:flex;justify-content:space-between;font-size:13px"><span>${esc(k)}</span><span class="muted">${v} · ${pct(v / parT)} · kum ${pct(cum / parT)}</span></div><div class="bar-h"><i style="width:${v / par[0][1] * 100}%;background:var(--bad)"></i></div></div>`; }).join(''); })() : '<p class="muted">Belum ada penyebab tercatat.</p>'}
-    <p class="muted" style="font-size:12px">Ketuk satu masalah untuk membuka janjinya di Daily commitment (isi detail masalah & tindak lanjut di sana).</p></div></div>`;
+    <h3 style="margin-top:14px">Pareto TIMWOODS (periode ini)</h3>
+    ${wasteParH(wp)}
+    ${wasteMat(L) ? `<h3 style="margin-top:14px">Penyebab × waste</h3>${wasteMat(L)}<p class="muted" style="font-size:12px">${Object.keys(WASTE).filter(k => k !== 'X').map(k => `${k} = ${WASTE[k][0]}`).join(' · ')}</p>` : ''}
+    <p class="muted" style="font-size:12px">Ketuk satu masalah untuk membuka janjinya di Daily commitment (isi detail masalah, jenis waste & tindak lanjut di sana).</p></div></div>`;
 }
 function pdfLogForm() {
   const o = lgOpt(), penyL = [...new Set([...D.penyebab, ...D.daily.map(x => x.penyebab).filter(Boolean)])], picL = [...new Set(D.tasks.map(t => t.pic).filter(Boolean))].sort();
@@ -929,6 +1000,7 @@ function pdfLogForm() {
     <label class="f">Penyebab<select name="peny">${opt('', o.peny, 'Semua penyebab')}${penyL.map(p => opt(p, o.peny)).join('')}${opt('(belum diisi)', o.peny)}</select></label>
     <label class="f">Disiplin<select name="dis">${opt('', o.dis, 'Semua disiplin')}${D.disiplin.map(p => opt(p, o.dis)).join('')}</select></label>
   </div>
+  <label class="f">Jenis waste (TIMWOODS)<select name="waste">${opt('', o.waste, 'Semua waste')}${Object.keys(WASTE).map(k => opt(k, o.waste, wNama(k))).join('')}</select></label>
   <div class="frow">
     <label class="f">PIC<select name="pic">${opt('', o.pic, 'Semua PIC')}${picL.map(p => opt(p, o.pic)).join('')}</select></label>
     <label class="f">Susunan<select name="grp">${opt('tgl', 'tgl', 'Satu tabel, urut tanggal')}${opt('pic', 'tgl', '1 halaman per PIC')}</select></label>
@@ -943,14 +1015,14 @@ function printLog(o) {
   const L = logRows(o).reverse(); // PDF: urut tanggal naik
   if (!L.length) { toast('Tidak ada masalah tercatat untuk filter ini'); return; }
   const groups = o.grp === 'pic' ? [...new Set(L.map(r => r.t?.pic || '(tanpa PIC)'))].sort().map(p => [p, L.filter(r => (r.t?.pic || '(tanpa PIC)') === p)]) : [['', L]];
-  const per = `${fmt(o.from)} – ${fmt(o.to)}`, filt = [o.peny, o.dis && 'Disiplin ' + o.dis, o.pic && 'PIC ' + o.pic, o.q && `"${o.q}"`].filter(Boolean).join(' · ') || 'Semua masalah';
-  const head = ['No', 'Tanggal', 'Kode', 'Task · lokasi', 'PIC', 'Target hari ini', 'Bobot', 'Actual', '% tercapai', 'Penyebab', 'Detail masalah', 'Tindak lanjut', 'Catatan'];
+  const per = `${fmt(o.from)} – ${fmt(o.to)}`, filt = [o.peny, o.waste && 'Waste ' + WASTE[o.waste][0], o.dis && 'Disiplin ' + o.dis, o.pic && 'PIC ' + o.pic, o.q && `"${o.q}"`].filter(Boolean).join(' · ') || 'Semua masalah';
+  const head = ['No', 'Tanggal', 'Kode', 'Task · lokasi', 'PIC', 'Target hari ini', 'Bobot', 'Actual', '% tercapai', 'Penyebab', 'Waste', 'Jam-orang', 'Detail masalah', 'Tindak lanjut', 'Catatan'];
   const S = logStat(o);
   const rows = rs => { let d = null; return rs.map(({ x, t }, i) => { const sh = x.tgl !== d ? `<tr class="sb"><td colspan="${head.length}">${fmt(x.tgl)} · W${weekOf(x.tgl)}</td></tr>` : ''; d = x.tgl; const b = x.capaian == null;
     return sh + `<tr><td>${i + 1}</td><td>${fmt(x.tgl)}</td><td>${esc(x.kode)}</td><td>${esc([t?.uraian, t?.lokasi].filter(Boolean).join(' · '))}</td><td>${esc(t?.pic || '')}</td><td>${esc(x.target)}</td>
-      <td>${pc(x.bobot)}</td><td>${b ? '' : pc(aktual(x))}</td><td class="u${b ? '' : ' bad'}">${b ? 'belum lapor' : pc(x.capaian)}</td><td>${esc(x.penyebab || '')}</td><td class="rm">${esc(x.masalah || '')}</td><td class="rm">${esc(x.tindakan || '')}</td><td class="rm">${esc(x.catatan || '')}</td></tr>`; }).join(''); };
-  const ringkas = rs => { const par = pareto(rs), tot = par.reduce((s, x) => s + x[1], 0);
-    return `${rs.filter(r => tercapai(r.x) === 'Tidak').length} janji tidak tercapai${rs.some(r => r.x.capaian == null) ? ` · ${rs.filter(r => r.x.capaian == null).length} belum dilaporkan` : ''}${par.length ? ' · Penyebab: ' + par.map(([k, v]) => `${esc(k)} ${v} (${pct(v / tot)})`).join(', ') : ''}`; };
+      <td>${pc(x.bobot)}</td><td>${b ? '' : pc(aktual(x))}</td><td class="u${b || tercapai(x) === 'Ya' ? '' : ' bad'}">${b ? 'belum lapor' : pc(x.capaian)}</td><td>${esc(x.penyebab || '')}</td><td>${esc(wasteL(x).map(k => WASTE[k][0]).join(', '))}</td><td>${isWaste(x) && jamOrang(x) != null ? r1(jamOrang(x)) : ''}</td><td class="rm">${esc(x.masalah || '')}</td><td class="rm">${esc(x.tindakan || '')}</td><td class="rm">${esc(x.catatan || '')}</td></tr>`; }).join(''); };
+  const ringkas = rs => { const par = pareto(rs), tot = par.reduce((s, x) => s + x[1], 0), wp = wastePar(rs);
+    return `${rs.filter(r => tercapai(r.x) === 'Tidak').length} janji tidak tercapai${wp.length ? ' · TIMWOODS: ' + wp.map(([k, a]) => `${esc(WASTE[k][0])} ${a.n}×${a.jo ? ' / ' + r1(a.jo) + ' jam-orang' : ''}`).join(', ') : ''}${rs.some(r => r.x.capaian == null) ? ` · ${rs.filter(r => r.x.capaian == null).length} belum dilaporkan` : ''}${par.length ? ' · Penyebab: ' + par.map(([k, v]) => `${esc(k)} ${v} (${pct(v / tot)})`).join(', ') : ''}`; };
   $('#print').innerHTML = groups.map(([g, rs]) => `<section class="pg dok lg">
     <header><div><b>Log Masalah Harian</b><span>${esc(D.meta.project)}</span></div>
       <div class="pr-meta"><span>Periode: <b>${esc(per)}</b></span>${g ? `<span>PIC: <b>${esc(g)}</b></span>` : ''}<span>${esc(filt)}</span><span>Dicetak ${fmt(todayISO())}${D.sync.user ? ' oleh ' + esc(D.sync.user) : ''}</span></div></header>
@@ -1060,8 +1132,8 @@ function exportCSV(what) {
       t.catatanKendala, prog(t.kode), t.penyebabTerlambat, t.disepakati === 'Ya' ? stK(t) : '', t.disepakati === 'Ya' ? stP(t) : '', t.prio, t.koord, t.followup]);
     download(`LPS-Input_${tgl()}.csv`, csv([h, ...rows]), 'text/csv');
   } else {
-    const h = ['Tanggal', 'Kode Task', 'Target Hari Ini', 'Bobot Target (% dari task)', '% Tercapai Harian (actual ÷ bobot)', 'Tercapai?', 'Progress s/d Kemarin', 'Kontribusi Hari Ini', 'Progress Kumulatif (%)', 'Penyebab Tidak Tercapai', 'Catatan', 'Detail Masalah', 'Tindak Lanjut'];
-    const rows = [...D.daily].sort((a, b) => a.tgl.localeCompare(b.tgl)).map(x => [x.tgl, x.kode, x.target, x.bobot, x.capaian, tercapai(x), progKemarin(x), kontrib(x), progKum(x), x.penyebab, x.catatan, x.masalah, x.tindakan]);
+    const h = ['Tanggal', 'Kode Task', 'Target Hari Ini', 'Bobot Target (% dari task)', '% Tercapai Harian (actual ÷ bobot)', 'Tercapai?', 'Progress s/d Kemarin', 'Kontribusi Hari Ini', 'Progress Kumulatif (%)', 'Penyebab Tidak Tercapai', 'Catatan', 'Detail Masalah', 'Tindak Lanjut', 'Jenis Waste (TIMWOODS)', 'Jam Hilang', 'Orang Terdampak', 'Jam-Orang Terbuang'];
+    const rows = [...D.daily].sort((a, b) => a.tgl.localeCompare(b.tgl)).map(x => [x.tgl, x.kode, x.target, x.bobot, x.capaian, tercapai(x), progKemarin(x), kontrib(x), progKum(x), x.penyebab, x.catatan, x.masalah, x.tindakan, wasteL(x).map(k => WASTE[k][0]).join(', '), x.jamHilang, x.orang, isWaste(x) ? jamOrang(x) : null]);
     download(`Daily-Log_${tgl()}.csv`, csv([h, ...rows]), 'text/csv');
   }
 }
@@ -1758,8 +1830,22 @@ document.addEventListener('click', e => {
     case 'daily-new': newDaily(el.dataset.kode, el.dataset.tgl); break;
     case 'h-tab': UI.hTab = el.dataset.v; render(); break;
     case 'log-all': UI.lgAll = el.checked; render(); break;
+    case 'log-buka': UI.hTab = 'log'; if (location.hash !== '#harian') location.hash = 'harian'; else render(); break;
+    case 'waste-buka': UI.wBuka[el.dataset.id] = true; render(); break;
+    case 'waste': { // pilih/lepas jenis waste; "Bukan waste" berdiri sendiri
+      const x = D.daily.find(d => d.id === el.dataset.id), k = el.dataset.v; if (!x) break;
+      let L = wasteL(x);
+      L = k === 'X' ? (L.includes('X') ? [] : ['X']) : L.includes(k) ? L.filter(v => v !== k) : [...L.filter(v => v !== 'X'), k];
+      x.waste = L.join(','); if (!L.length) UI.wBuka[x.id] = true;
+      save(); render(); break;
+    }
+    case 'waste-saran': {
+      let n = 0;
+      D.daily.forEach(x => { if (tercapai(x) === 'Tidak' && !wasteL(x).length && saranWaste(x.penyebab)) { x.waste = saranWaste(x.penyebab); n++; } });
+      save(); render(); toast(`${n} janji diisi jenis waste dari penyebabnya`); break;
+    }
     case 'log-goto': UI.hTab = ''; UI.harianTgl = el.dataset.tgl; D.settings.hMode = '1'; persist(); UI.focus = `h-${el.dataset.tgl}-${el.dataset.kode}`; render(); break;
-    case 'pdf-log': openDlg(pdfLogForm(), fd => printLog({ from: fd.get('from'), to: fd.get('to'), peny: fd.get('peny') || '', dis: fd.get('dis') || '', pic: fd.get('pic') || '', q: String(fd.get('q') || '').trim(), all: fd.has('all'), grp: fd.get('grp') })); break;
+    case 'pdf-log': openDlg(pdfLogForm(), fd => printLog({ from: fd.get('from'), to: fd.get('to'), peny: fd.get('peny') || '', dis: fd.get('dis') || '', pic: fd.get('pic') || '', waste: fd.get('waste') || '', q: String(fd.get('q') || '').trim(), all: fd.has('all'), grp: fd.get('grp') })); break;
     case 'hmode': D.settings.hMode = el.dataset.v; persist(); render(); break; // per perangkat, tidak disinkron
     case 'jr-add': {
       const last = [...document.querySelectorAll('#jr-rows [name=jtgl]')].at(-1)?.value || jrTgl || tgl();
@@ -1849,7 +1935,7 @@ document.addEventListener('change', e => {
     const x = D.daily.find(x => x.id === id);
     if (path === 'aktual') x.capaian = v == null || !x.bobot ? null : r6(v / x.bobot * 100); // actual → % tercapai
     else if (path === 'bobot') { const a = aktual(x); x.bobot = v; if (a != null) x.capaian = v ? r6(a / v * 100) : null; } // actual tetap
-    else setPath(x, path, v);
+    else { setPath(x, path, v); if (path === 'penyebab' && !wasteL(x).length) x.waste = saranWaste(v); } // saran TIMWOODS dari penyebab
   }
   save(); render();
 });

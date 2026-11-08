@@ -51,6 +51,7 @@ var TABLES = {
     // tercapai & progress = kolom model lama (kosong); bobot & capaian (%) ditambah di akhir agar baris lama tetap sejajar
     cols: ['id', 'tgl', 'kode', 'target', 'tercapai', 'progress', 'penyebab', 'catatan', '_u', '_by', '_del', '_rev', 'bobot', 'capaian']
       .concat(['masalah', 'tindakan']) // log masalah: detail masalah & tindak lanjut bila target tidak tercapai
+      .concat(['waste', 'jamHilang', 'orang']) // TIMWOODS: jenis waste (kode, dipisah koma), jam hilang, orang terdampak
   }
 };
 
