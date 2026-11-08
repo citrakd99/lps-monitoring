@@ -336,3 +336,10 @@ html.ro button:disabled[data-act] { opacity: 1; cursor: default; }
 .lg-t { font-size: 13px; margin-top: 4px; white-space: pre-line; }
 @media print { #print .lg td:nth-child(6), #print .lg td:nth-child(4) { white-space: normal; min-width: 30mm; } }
 @media print { #print .lg td:nth-child(3) { white-space: nowrap; } }
+
+/* TIMWOODS */
+.wst > span { display: block; font-size: 12px; color: var(--muted); }
+.wst-c { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
+.wst-c button { border: 1px solid var(--line); background: var(--surface); color: var(--text); border-radius: 99px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+.wst-c button.on { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); font-weight: 600; }
+.wst-m td, .wst-m th { font-size: 12px; }
