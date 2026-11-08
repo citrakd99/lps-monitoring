@@ -108,7 +108,11 @@ function prog(kode) {
   for (const x of D.daily) if (x.kode === kode) m = Math.max(m ?? 0, progKum(x));
   return m;
 }
-const stK = t => KK.some(k => t.k[k].st === 'Pending') ? 'PENDING' : 'READY';
+// status kendala: OK / Pending (ada issue) / Cek (belum dicek – default saat task disepakati, wajib dibahas di Make Ready)
+const stK = t => KK.some(k => t.k[k].st !== 'OK') ? 'PENDING' : 'READY';
+const belumCek = t => KK.filter(k => t.k[k].st === 'Cek');
+// task baru disepakati → semua kendala yang "OK" dijadikan "belum dicek" agar benar-benar dibahas
+function wajibCek(t) { KK.forEach(k => { if (t.k[k].st === 'OK') t.k[k].st = 'Cek'; }); }
 function stP(t) {
   if (stK(t) !== 'READY') return '';
   if ((prog(t.kode) || 0) >= 100) return 'FINISH';
@@ -806,7 +810,7 @@ function vKomit() {
           <button type="button" data-act="sepakat" data-kode="${esc(t.kode)}" data-v="Ya" class="${t.disepakati === 'Ya' ? 'on-ok' : ''}">Disepakati</button>
           <button type="button" data-act="sepakat" data-kode="${esc(t.kode)}" data-v="Tidak" class="${t.disepakati === 'Tidak' ? 'on-bad' : ''}">Ditunda</button>
         </span>
-        ${t.disepakati === 'Ya' ? stChip(stK(t)) + stChip(stP(t)) : ''}
+        ${t.disepakati === 'Ya' ? stChip(stK(t)) + stChip(stP(t)) + `<a href="#ready" class="r-ptr" data-act="goto-ready" data-kode="${esc(t.kode)}">${belumCek(t).length ? `⚠ ${belumCek(t).length} kendala belum dicek` : 'Make ready'} →</a>` : ''}
         ${t.disepakati === 'Ya' || rantai(t) ? progChips(t) : ''}
         <span style="flex:1"></span>
         ${prioSel(t)}
@@ -876,12 +880,14 @@ function vReady() {
   <div class="grid kpis">
     ${KK.map(k => `<div class="kpi ${cnt(k) ? 'warn' : ''}"><b>${cnt(k)}</b><span>Pending ${KAT[k]}</span></div>`).join('')}
     <div class="kpi ok"><b>${ts.filter(t => stK(t) === 'READY').length}</b><span>Task Ready to Work</span></div>
+    ${(() => { const n = ts.filter(t => belumCek(t).length).length; return n ? `<div class="kpi warn"><b>${n}</b><span>Task kendalanya belum dicek</span></div>` : ''; })()}
   </div>
   <div class="bar"><span class="muted" style="font-size:13px;flex:1">Task READY otomatis diringkas – ketuk judul untuk membuka.</span>
     <button class="btn sm" data-act="r-all" data-v="1">Buka semua</button><button class="btn sm" data-act="r-all" data-v="0">Ringkas semua</button></div>
   ${ts.filter(prioOK).sort((a, b) => byPrio(a, b) || (stK(a) === 'PENDING' ? 0 : 1) - (stK(b) === 'PENDING' ? 0 : 1) || a.kode.localeCompare(b.kode)).map(t => {
     const p = prog(t.kode), sp = stP(t), buka = rBuka(t);
-    const progLine = `<div style="display:flex;align-items:center;gap:8px;margin:8px 0 ${buka ? 8 : 0}px"><div class="bar-h" style="flex:1"><i style="width:${Math.min(p || 0, 100)}%"></i></div><small class="muted">Progress ${p == null ? '0' : p}%${buka ? ' (dari Daily Log)' : ''}</small>${rantai(t) ? progChips(t).replace(/^<span[^>]*>[^<]*<\/span>/, '') : ''}${stK(t) === 'READY' && sp !== 'FINISH' ? `<button class="btn sm" data-act="daily-new" data-kode="${esc(t.kode)}">+ Janji harian</button>` : ''}</div>`;
+    const kr = KK.filter(k => t.k[k].st !== 'OK'), kSum = !kr.length ? 'Kendala: semua OK' : KK.map(k => t.k[k].st === 'OK' ? '' : `${KAT[k]} ${t.k[k].st === 'Cek' ? 'belum dicek' : 'pending'}`).filter(Boolean).join(' · ');
+    const progLine = `${buka ? '' : `<a href="#" class="r-ptr" data-act="r-tgl" data-kode="${esc(t.kode)}">${esc(kSum)} · lihat / ubah status →</a>`}<div style="display:flex;align-items:center;gap:8px;margin:8px 0 ${buka ? 8 : 0}px"><div class="bar-h" style="flex:1"><i style="width:${Math.min(p || 0, 100)}%"></i></div><small class="muted">Progress ${p == null ? '0' : p}%${buka ? ' (dari Daily Log)' : ''}</small>${rantai(t) ? progChips(t).replace(/^<span[^>]*>[^<]*<\/span>/, '') : ''}${stK(t) === 'READY' && sp !== 'FINISH' ? `<button class="btn sm" data-act="daily-new" data-kode="${esc(t.kode)}">+ Janji harian</button>` : ''}</div>`;
     return `<div class="item${buka ? '' : ' tutup'}" id="r-${esc(t.kode)}">
       <div class="hd lipat" data-act="r-tgl" data-kode="${esc(t.kode)}" role="button" aria-expanded="${buka}"><div><span class="lp">${buka ? '▾' : '▸'}</span> <span class="code">${esc(t.kode)}</span> <span class="ttl">${esc(t.uraian)}</span>
         <div class="sub">${esc(t.pekerjaan)}${buka ? '' : ` · W${t.minggu} · PIC ${esc(t.pic || '–')}`}</div></div>
@@ -892,12 +898,12 @@ function vReady() {
       ${dokLine(t)}
       ${progLine}
       ${KK.map(k => {
-        const c = t.k[k], pend = c.st === 'Pending', f = `task|${esc(t.kode)}|k.${k}.`;
+        const c = t.k[k], pend = c.st === 'Pending', cek = c.st === 'Cek', f = `task|${esc(t.kode)}|k.${k}.`;
         const over = pend && c.target && c.target < d;
-        return `<div class="kr">
-          <div class="kh"><span>${KAT[k]}</span>
+        return `<div class="kr${cek ? ' cek' : ''}">
+          <div class="kh"><span>${KAT[k]}${cek ? ' <span class="chip warn">belum dicek</span>' : ''}</span>
             <span class="seg">
-              <button type="button" data-act="kst" data-kode="${esc(t.kode)}" data-k="${k}" data-v="OK" class="${pend ? '' : 'on-ok'}">OK</button>
+              <button type="button" data-act="kst" data-kode="${esc(t.kode)}" data-k="${k}" data-v="OK" class="${c.st === 'OK' ? 'on-ok' : ''}">OK</button>
               <button type="button" data-act="kst" data-kode="${esc(t.kode)}" data-k="${k}" data-v="Pending" class="${pend ? 'on-warn' : ''}">Pending</button>
             </span></div>
           ${pend ? `<div class="kd">
@@ -1634,7 +1640,8 @@ const REPORTS = {
     head: ['Kode', 'Prioritas · koordinasi', 'Uraian', 'Lokasi', 'Rencana', 'Status kendala', 'Kendala pending (issue · PIC · target)', 'Progress', 'Pelaksanaan'],
     rows: o => D.tasks.filter(t => t.disepakati === 'Ya' && inW(o.week)(t) && prioOK(t)).sort((a, b) => byPrio(a, b) || a.kode.localeCompare(b.kode)).map(t => ({ pic: picOf(t.pic),
       cells: [t.kode, prioTxt(t), t.uraian, t.lokasi, rentang(t), stK(t),
-        KK.filter(k => t.k[k].st === 'Pending').map(k => { const c = t.k[k]; return `${KAT[k]}: ${c.issue || '?'}${c.detail ? ' – ' + c.detail : ''} · ${c.pic || 'PIC?'} · ${fmt(c.target)}`; }).join('\n') || 'Semua OK',
+        [...KK.filter(k => t.k[k].st === 'Pending').map(k => { const c = t.k[k]; return `${KAT[k]}: ${c.issue || '?'}${c.detail ? ' – ' + c.detail : ''} · ${c.pic || 'PIC?'} · ${fmt(c.target)}`; }),
+          ...(belumCek(t).length ? ['Belum dicek: ' + belumCek(t).map(k => KAT[k]).join(', ')] : [])].join('\n') || 'Semua OK',
         pc(prog(t.kode)), stP(t)] })) },
   harian: { title: 'Daily Commitment', date: true,
     head: ['Kode', 'Uraian / lokasi', 'Target hari ini', 'Bobot', 'Actual', '% tercapai', 'Tercapai?', 'Progress kumulatif', 'Penyebab tidak tercapai', 'Catatan'],
@@ -1795,7 +1802,8 @@ function editTask(t, isNew) {
     const p = D.pekerjaan.find(x => x.nama === v.pekerjaan);
     if (p && !v.disiplin) v.disiplin = p.disiplin;
     if (isNew) D.tasks.push(Object.assign(t, v));
-    else Object.assign(D.tasks.find(x => x.kode === t.kode), v);
+    else { const o = D.tasks.find(x => x.kode === t.kode); if (v.disepakati === 'Ya' && o.disepakati !== 'Ya') wajibCek(o); Object.assign(o, v); }
+    if (isNew && v.disepakati === 'Ya') wajibCek(t);
     save(); UI.focus = 'k-' + v.kode; render(); toast('Task tersimpan');
   });
 }
@@ -1956,7 +1964,12 @@ document.addEventListener('click', e => {
         save(); $('#dlg').close(); render(); toast('Task dihapus');
       }
       break;
-    case 'sepakat': task.disepakati = task.disepakati === el.dataset.v ? '' : el.dataset.v; task.inLPS = task.disepakati === 'Ya'; save(); render(); break;
+    case 'sepakat': {
+      const lama = task.disepakati;
+      task.disepakati = lama === el.dataset.v ? '' : el.dataset.v; task.inLPS = task.disepakati === 'Ya';
+      if (task.disepakati === 'Ya' && lama !== 'Ya') { wajibCek(task); toast(`${task.kode} disepakati – cek 4 kendala di Make Ready`); }
+      save(); render(); break;
+    }
     case 'kst': task.k[el.dataset.k].st = el.dataset.v; save(); render(); break;
     case 'daily-new': newDaily(el.dataset.kode, el.dataset.tgl); break;
     case 'h-tab': UI.hTab = el.dataset.v; render(); break;
@@ -2000,7 +2013,7 @@ document.addEventListener('click', e => {
       break;
     }
     case 'day': UI.harianTgl = addDays(UI.harianTgl || tgl(), +el.dataset.n); render(); break;
-    case 'r-tgl': UI.rBuka[kode] = !rBuka(task); render(); break;
+    case 'r-tgl': e.preventDefault(); UI.rBuka[kode] = !rBuka(task); render(); break;
     case 'r-all': planTasks().forEach(t => { UI.rBuka[t.kode] = el.dataset.v === '1'; }); render(); break;
     case 'goto-ready': UI.rBuka[kode] = true; UI.focus = 'r-' + kode; if (UI.view === 'ready') render(); break;
     case 'goto-komit': UI.focus = 'k-' + kode; if (UI.view === 'komit') render(); break;
