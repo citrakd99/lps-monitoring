@@ -21,7 +21,7 @@ function lsKunci(baru, akhir) {
 const KEY = RO ? lsKunci('lps-spv', 'spv') : lsKunci('lps-v1', 'v1');
 // aksi yang boleh di mode SPV: navigasi, filter, detail, sinkron (tarik)
 const RO_OK = new Set(['settings', 'sync-now', 'sync-off', 'sd-tab', 'mp-day', 'mp-all', 'dok-f', 'drv-load', 'dok-kat', 'dok-grp', 'dok-info',
-  'goto-dok', 'fprio', 'day', 'goto-ready', 'goto-komit', 'tl-goto', 'hmode', 'h-tab', 'log-goto', 'log-all', 'log-buka']);
+  'goto-dok', 'fprio', 'day', 'goto-ready', 'goto-komit', 'tl-goto', 'hmode', 'h-tab', 'log-goto', 'log-all', 'log-buka', 'kw']);
 const RO_TAMPIL = new Set(['kst', 'sepakat', 'waste']); // tombol status: tetap terlihat (menunjukkan status) tapi nonaktif
 function roLock(root) {
   if (!RO || !root) return;
@@ -66,7 +66,7 @@ const opt = (v, cur, label) => `<option value="${esc(v)}"${String(v) === String(
 const pct = (x, d = 0) => x == null || isNaN(x) ? '–' : (x * 100).toFixed(d) + '%';
 
 let D = null;
-const UI = { hTab: '', lgFrom: null, lgTo: null, lgPeny: '', lgDis: '', lgPic: '', lgQ: '', lgAll: false, lgWaste: '', wBuka: {}, view: 'dash', week: '', jSearch: '', jDis: '', jLook: '2', jFrom: null, harianTgl: null, focus: null, fPrio: '', sd: 'mp', mpTgl: null, mpAll: false, dokF: 'open', dokScope: '', dokJenis: '', dokSub: '', dokQ: '', dokTutup: [] };
+const UI = { hTab: '', lgFrom: null, lgTo: null, lgPeny: '', lgDis: '', lgPic: '', lgQ: '', lgAll: false, lgWaste: '', wBuka: {}, wPilih: false, view: 'dash', week: '', jSearch: '', jDis: '', jLook: '2', jFrom: null, harianTgl: null, focus: null, fPrio: '', sd: 'mp', mpTgl: null, mpAll: false, dokF: 'open', dokScope: '', dokJenis: '', dokSub: '', dokQ: '', dokTutup: [] };
 
 /* ---------- tanggal ---------- */
 const todayISO = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
@@ -712,6 +712,22 @@ function msCard() {
 }
 
 /* ---------- KOMITMEN ---------- */
+/* LANJUTKAN KE MINGGU DEPAN: task disepakati yang belum FINISH (atau ditunda) dibuat ulang di minggu berikutnya.
+   Task lama tetap di minggunya (PPC minggu itu tetap jujur); task baru = sisa pekerjaan, status disepakati dikosongkan untuk rapat. */
+const LJ_RE = /\s*\(lanjutan T-[^)]*\)$/;
+const lanjutanDari = t => D.tasks.find(x => +x.minggu === +t.minggu + 1 && x.uraian.includes(`(lanjutan ${t.kode}`));
+const perluLanjut = t => !!weekObj(+t.minggu + 1) && +t.minggu <= weekOf(tgl()) && !lanjutanDari(t)
+  && ((t.disepakati === 'Ya' && (prog(t.kode) || 0) < 100) || t.disepakati === 'Tidak');
+function lanjutkan(t) {
+  const w = +t.minggu + 1, wo = weekObj(w), p = prog(t.kode) || 0;
+  if (!wo) return null;
+  const n = normTask({ ...JSON.parse(JSON.stringify(t)), kode: nextKode(), minggu: w, disepakati: '', alasan: '', inLPS: false, penyebabTerlambat: '', followup: '',
+    uraian: `${t.uraian.replace(LJ_RE, '')} (lanjutan ${t.kode}${p ? `, s/d ${r1(p)}%` : ''})`,
+    mulai: wo.start, selesai: !t.selesai || t.selesai < wo.start || t.selesai > wo.end ? wo.end : t.selesai });
+  delete n._u; delete n._by; delete n._rev;
+  D.tasks.push(n);
+  return n;
+}
 function vKomit() {
   const ts = D.tasks.filter(inWeek).filter(prioOK).sort((a, b) => byPrio(a, b) || a.minggu - b.minggu || a.kode.localeCompare(b.kode));
   let gap = TL().length ? tlGapCard(tlWeek()) : '';
@@ -723,10 +739,14 @@ function vKomit() {
       ${kosong.map(p => `<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--line)"><span><span class="code">${esc(p.kode)}</span> ${esc(p.nama.replace(/^\S+\s/, ''))} <small class="muted">${esc(p.disiplin)}</small></span><button class="btn sm" data-act="task-new" data-pek="${esc(p.nama)}">+ Task</button></div>`).join('')}
     </details>`;
   }
-  const n = ts.length, ya = ts.filter(t => t.disepakati === 'Ya').length;
+  const n = ts.length, ya = ts.filter(t => t.disepakati === 'Ya').length, cw = weekOf(tgl());
+  const lj = UI.week === '' ? [] : D.tasks.filter(t => +t.minggu === +UI.week && perluLanjut(t));
+  const kw = [[String(cw), `Minggu ini · W${cw}`], ...(weekObj(cw + 1) ? [[String(cw + 1), `Minggu depan · W${cw + 1}`]] : []), ['', 'Semua minggu']];
   return `
   ${vh(`Komitmen mingguan ${UI.week === '' ? '' : '· W' + UI.week}`, 'komit')}
+  <div class="prio-f">${kw.map(([v, l]) => `<button type="button" data-act="kw" data-v="${v}" class="${String(UI.week) === v ? 'on' : ''}">${l}</button>`).join('')}${UI.week !== '' && !kw.some(([v]) => v === String(UI.week)) ? `<button type="button" class="on" data-act="kw" data-v="${UI.week}">W${UI.week}</button>` : ''}</div>
   ${prioBar()}
+  ${lj.length ? `<div class="fu" style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span style="flex:1;min-width:200px"><b>${lj.length} task W${UI.week}</b> belum selesai / ditunda dan belum dilanjutkan ke W${+UI.week + 1}.</span><button class="btn sm" data-act="lanjut-semua" data-w="${UI.week}">Lanjutkan semua ke W${+UI.week + 1}</button></div>` : ''}
   <p class="muted" style="margin-top:-6px">${n} task · ${ya} disepakati${n ? ' (' + pct(ya / n) + ')' : ''}. Pilih <b>Ya</b> saat rapat mingguan untuk task yang sanggup dikerjakan.</p>
   ${gap}
   ${ts.map(t => `
@@ -743,8 +763,10 @@ function vKomit() {
         ${t.disepakati === 'Ya' ? stChip(stK(t)) : ''}
         <span style="flex:1"></span>
         ${prioSel(t)}
+        ${perluLanjut(t) ? `<button class="btn sm" data-act="lanjut" data-kode="${esc(t.kode)}" title="Buat task lanjutan (sisa pekerjaan) di minggu berikutnya">→ W${+t.minggu + 1}</button>` : ''}
         <button class="btn sm" data-act="task-edit" data-kode="${esc(t.kode)}">Ubah</button>
       </div>
+      ${(() => { const l = lanjutanDari(t); return l ? `<div class="muted" style="font-size:12px;margin-top:6px">↪ dilanjutkan ke W${l.minggu} sebagai <a href="#komit" data-act="kw" data-v="${l.minggu}">${esc(l.kode)}</a></div>` : ''; })()}
       ${fuNote(t)}
       ${t.disepakati === 'Tidak' ? `<input type="text" style="margin-top:8px" placeholder="Alasan ditunda / catatan rapat" value="${esc(t.alasan)}" data-f="task|${esc(t.kode)}|alasan" class="${t.alasan ? '' : 'need'}">` : ''}
     </div>`).join('') || '<div class="empty">Belum ada task untuk filter ini. Tekan <b>+ Task</b>.</div>'}
@@ -1854,7 +1876,15 @@ document.addEventListener('click', e => {
     case 'tl-all': document.querySelectorAll('#tl-pick .pick-i:not([hidden]) input:not(:disabled)').forEach(c => { c.checked = true; }); tlFilter(); break;
     case 'tl-none': document.querySelectorAll('#tl-pick input:checked').forEach(c => { c.checked = false; }); tlFilter(); break;
     case 'tl-manual': { const w = $('#tl-w')?.value; if (w != null) UI.week = w; newTask(); break; } // isi dialog diganti form task biasa
-    case 'tl-goto': UI.week = el.dataset.w; if (UI.view === 'komit') render(); break;
+    case 'tl-goto': UI.week = el.dataset.w; UI.wPilih = true; if (UI.view === 'komit') render(); break;
+    case 'kw': e.preventDefault(); UI.week = el.dataset.v; UI.wPilih = true; render(); break;
+    case 'lanjut': { const n = lanjutkan(task); if (n) { save(); render(); toast(`${task.kode} dilanjutkan ke W${n.minggu} sebagai ${n.kode} – sepakati di rapat`); } break; }
+    case 'lanjut-semua': {
+      const w = +el.dataset.w, L = D.tasks.filter(t => +t.minggu === w && perluLanjut(t));
+      if (!L.length || !confirm(`Buat ${L.length} task lanjutan di W${w + 1}?\nTask W${w} tetap tercatat apa adanya (PPC tidak berubah).`)) break;
+      L.forEach(lanjutkan); UI.week = String(w + 1); UI.wPilih = true; save(); render();
+      toast(`${L.length} task dilanjutkan ke W${w + 1} – status disepakati dikosongkan untuk rapat`); break;
+    }
     case 'task-new': newTask(el.dataset.pek); break;
     case 'task-edit': editTask({ ...task }, false); break;
     case 'task-del':
@@ -1993,11 +2023,13 @@ document.addEventListener('input', e => {
   render();
   const s = document.querySelector(`[data-ui="${k}"]`); s.focus(); s.setSelectionRange(pos, pos);
 });
-$('#f-week').addEventListener('change', e => { UI.week = e.target.value; render(); });
+$('#f-week').addEventListener('change', e => { UI.week = e.target.value; UI.wPilih = true; render(); });
 
 function route() {
   const v = location.hash.slice(1);
   UI.view = VIEWS.includes(v) ? v : 'dash';
+  // Komitmen dibuka pertama kali → otomatis minggu ini (selama minggu belum dipilih manual)
+  if (UI.view === 'komit' && UI.week === '' && !UI.wPilih && D?.meta?.weeks?.length) { const cw = weekOf(tgl()); if (weekObj(cw)) UI.week = String(cw); }
   const keep = UI.focus;
   render();
   if (!keep) window.scrollTo(0, 0);
