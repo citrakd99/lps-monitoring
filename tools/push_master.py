@@ -2,7 +2,7 @@
 bisa memuatnya setelah kode akses diisi.
 
 Pemakaian (setelah export_excel.py):
-    python push_master.py <URL_WEB_APP_/exec> <KODE_AKSES> [seed.json] [--nama "Admin"] [--dok-link "LINK_GOOGLE_SHEET_DOKUMEN"]
+    python push_master.py <URL_WEB_APP_/exec> <KODE_AKSES> [seed.json] [--nama "Admin"] [--dok-link "LINK_GOOGLE_SHEET_DOKUMEN"] [--ll-link "LINK_LOG_LONG_LEAD"]
 
 Yang dikirim:
   - master  : meta (minggu, kurva-S), pekerjaan, area, daftar issue, penyebab, timeline (export_timeline.py)  → tab Master (ditimpa)
@@ -52,6 +52,11 @@ def main():
         i = args.index("--dok-link")
         dok_link = args[i + 1].strip()
         del args[i:i + 2]
+    ll_link = None
+    if "--ll-link" in args:  # link log long lead material di Drive (dibaca aplikasi, hanya baca); kosong "" = hapus
+        i = args.index("--ll-link")
+        ll_link = args[i + 1].strip()
+        del args[i:i + 2]
     if len(args) < 2:
         sys.exit(__doc__)
     m = re.search(r"https?://\S+", args[0])  # toleran: spasi/teks lain ikut tertempel di argumen URL
@@ -67,7 +72,9 @@ def main():
     # link log dokumen Drive: tetap pakai yang sudah ada di Sheet tim bila tidak diberikan
     old_link = (team.get("master") or {}).get("dokSrc") or ""
     body["master"]["dokSrc"] = old_link if dok_link is None else dok_link
-    if body["master"]["dokSrc"] != old_link:  # versi master = exportedAt; ganti agar perangkat tim menarik master baru
+    old_ll = (team.get("master") or {}).get("llSrc") or ""
+    body["master"]["llSrc"] = old_ll if ll_link is None else ll_link
+    if body["master"]["dokSrc"] != old_link or body["master"]["llSrc"] != old_ll:  # versi master = exportedAt; ganti agar perangkat tim menarik master baru
         body["master"]["exportedAt"] = now
     known_dok = {str(r["id"]) for r in team.get("dokumen", [])}
     body["dokumen"] = [{**r, "_u": now, "_by": nama} for r in seed.get("dokumen", []) if str(r["id"]) not in known_dok]
@@ -109,6 +116,8 @@ def main():
         print(f"Timeline Schedule: {len(body['master']['timeline'])} aktivitas (bank task komitmen).")
     if body["master"]["dokSrc"]:
         print("Link log dokumen Drive: " + ("diperbarui" if dok_link is not None else "tetap") + " (aplikasi membacanya langsung, hanya baca).")
+    if body["master"]["llSrc"]:
+        print("Link log long lead Drive: " + ("diperbarui" if ll_link is not None else "tetap") + " (aplikasi membacanya langsung, hanya baca).")
     if res.get("skipped"):
         print(f"Catatan: {res['skipped']} record dilewati karena versi di Sheet lebih baru.")
 

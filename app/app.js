@@ -66,7 +66,7 @@ const opt = (v, cur, label) => `<option value="${esc(v)}"${String(v) === String(
 const pct = (x, d = 0) => x == null || isNaN(x) ? '–' : (x * 100).toFixed(d) + '%';
 
 let D = null;
-const UI = { hTab: '', lgFrom: null, lgTo: null, lgPeny: '', lgDis: '', lgPic: '', lgQ: '', lgAll: false, lgWaste: '', wBuka: {}, wPilih: false, rBuka: {}, jdBuka: {}, view: 'dash', week: '', jSearch: '', jDis: '', jLook: '2', jFrom: null, harianTgl: null, focus: null, fPrio: '', sd: 'mp', mpTgl: null, mpAll: false, dokF: 'open', dokScope: '', dokJenis: '', dokSub: '', dokQ: '', dokTutup: [] };
+const UI = { hTab: '', lgFrom: null, lgTo: null, lgPeny: '', lgDis: '', lgPic: '', lgQ: '', lgAll: false, lgWaste: '', wBuka: {}, wPilih: false, rBuka: {}, jdBuka: {}, view: 'dash', week: '', jSearch: '', jDis: '', jLook: '2', jFrom: null, harianTgl: null, focus: null, fPrio: '', sd: 'mp', mpTgl: null, mpAll: false, dokF: 'open', dokScope: '', dokJenis: '', dokSub: '', dokQ: '', dokTutup: [], llF: '', llDis: '', llQ: '' };
 
 /* ---------- tanggal ---------- */
 const todayISO = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
@@ -214,7 +214,7 @@ async function fetchSeed() {
   if (!r.ok) throw new Error('seed.json tidak ditemukan');
   return r.json();
 }
-const MASTER_F = ['meta', 'pekerjaan', 'areas', 'areaMap', 'issues', 'penyebab', 'disiplin', 'source', 'exportedAt', 'mpPlan', 'dokSrc', 'timeline'];
+const MASTER_F = ['meta', 'pekerjaan', 'areas', 'areaMap', 'issues', 'penyebab', 'disiplin', 'source', 'exportedAt', 'mpPlan', 'dokSrc', 'llSrc', 'timeline'];
 const blank = () => ({ meta: { project: '', tglUpdate: null, targetPPC: 0.8, weeks: [], scurve: [] }, pekerjaan: [], areas: [], areaMap: {},
   issues: Object.fromEntries(KK.map(k => [k, []])), penyebab: [], disiplin: ['CSA', 'MEP', 'ARS', 'PRELIM'], tasks: [], daily: [], progress: [], mpPlan: [], manpower: [], dokumen: [], timeline: [], tlEdit: [], jdEdit: [] });
 const hasMaster = () => D.meta.weeks.length > 0;
@@ -1361,6 +1361,8 @@ function parseCsv(t) {
   if (f || r.length) { r.push(f); rows.push(r); }
   return rows;
 }
+// hanya link http(s) yang dipakai (isi sel dari Drive tidak dipercaya mentah-mentah)
+const urlOk = v => { v = String(v || '').trim(); return /^https:\/\/[^\s"'<>]+$/i.test(v) ? v : ''; };
 const stDrv = s => { s = s.toLowerCase(); return /reject/.test(s) ? 'Rejected' : /not approved|revis/.test(s) ? 'Revisi' : /approved|closed/.test(s) ? 'Approved' : /submit|open|review/.test(s) ? 'Submitted' : 'Draft'; };
 function drvSheet(name, gid, rows, id) {
   const hi = rows.findIndex(r => /document number/i.test(r[2] || ''));
@@ -1377,31 +1379,33 @@ function drvSheet(name, gid, rows, id) {
     }
     const key = /^SBP-/i.test(no) ? no.toUpperCase() : no + '|' + desc;
     if (!by.has(key)) by.set(key, { no, desc, scope: scope || ((no.match(/-(CSA|MEP)-/i) || [])[1] || '').toUpperCase(), sub, revs: [] });
-    by.get(key).revs.push({ rev: +c(3) || 0, est: tglTeks(c(5)), sub: tglTeks(c(6)), cw: tglTeks(c(7)), own: tglTeks(c(8)), st: c(9), rem: c(10), pic: c(11) });
+    by.get(key).revs.push({ rev: +c(3) || 0, est: tglTeks(c(5)), sub: tglTeks(c(6)), cw: tglTeks(c(7)), own: tglTeks(c(8)), st: c(9), rem: c(10), pic: c(11), fl: urlOk(c(12)) });
   }
   const link = `https://docs.google.com/spreadsheets/d/${id}/edit#gid=${gid}`;
   return [...by.entries()].map(([key, d]) => {
-    const revs = d.revs.sort((a, b) => a.rev - b.rev), x = revs.at(-1), status = stDrv(x.st || '');
+    const revs = d.revs.sort((a, b) => a.rev - b.rev), x = revs.at(-1), status = stDrv(x.st || ''), fl = [...revs].reverse().find(v => v.fl);
     return { id: 'g:' + jenis + ':' + key, drive: true, jenis, scope: d.scope, sub: d.sub, nomor: d.no, nama: d.desc || d.no, rev: x.rev,
       status, stAsli: x.st || 'Belum submit', target: x.est, tglSubmit: x.sub, cw: x.cw, own: x.own, respon: x.own || x.cw || null, tglApprove: status === 'Approved' ? (x.own || x.cw || null) : null,
-      issue: x.rem, pic: x.pic, kode: '', link,
+      issue: x.rem, pic: x.pic, kode: '', link, file: fl ? fl.fl : '', fileRev: fl ? fl.rev : null,
       riwayat: revs.length < 2 ? "" : revs.map(v => `Rev ${v.rev} · ${v.st || '-'}${v.sub ? ' · submit ' + fmt(v.sub) : ''}${v.own || v.cw ? ' · respon ' + fmt(v.own || v.cw) : ''}${v.rem ? '\n   ' + v.rem.replace(/\s*\n\s*/g, ' ') : ''}`).join('\n') };
   });
 }
+// daftar [nama, gid] sheet dari halaman htmlview file Drive (link berbagi "Pelihat")
+async function drvTabs(base) {
+  const html = await (await fetch(base + 'htmlview')).text();
+  const sh = [...html.matchAll(/\{name: "((?:[^"\\]|\\.)*)", pageUrl: "[^"]*", gid: "(\d+)"/g)]
+    .map(m => [m[1].replace(/\\x([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/\\(.)/g, '$1'), m[2]]);
+  if (!sh.length) throw new Error('Daftar sheet tidak terbaca. Pastikan akses link: "Siapa saja yang memiliki link" (Pelihat).');
+  return sh;
+}
+const drvCsv = async (base, gid, n) => { const r = await fetch(base + 'gviz/tq?tqx=out:csv&headers=0&gid=' + gid); if (!r.ok) throw new Error(`Sheet ${n}: HTTP ${r.status}`); return parseCsv(await r.text()); };
 async function drvLoad(manual) {
   const id = drvId(dokSrc()); if (!id || drvBusy) return;
   drvBusy = true; if (UI.view === 'sd') render();
   const base = `https://docs.google.com/spreadsheets/d/${id}/`;
   try {
-    const html = await (await fetch(base + 'htmlview')).text();
-    const sh = [...html.matchAll(/\{name: "((?:[^"\\]|\\.)*)", pageUrl: "[^"]*", gid: "(\d+)"/g)]
-      .map(m => [m[1].replace(/\\x([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/\\(.)/g, '$1'), m[2]]);
-    if (!sh.length) throw new Error('Daftar sheet tidak terbaca. Pastikan akses link: "Siapa saja yang memiliki link" (Pelihat).');
-    const docs = (await Promise.all(sh.map(async ([n, gid]) => {
-      const r = await fetch(base + 'gviz/tq?tqx=out:csv&headers=0&gid=' + gid);
-      if (!r.ok) throw new Error(`Sheet ${n}: HTTP ${r.status}`);
-      return drvSheet(n, gid, parseCsv(await r.text()), id);
-    }))).flat();
+    const sh = await drvTabs(base);
+    const docs = (await Promise.all(sh.map(async ([n, gid]) => drvSheet(n, gid, await drvCsv(base, gid, n), id)))).flat();
     DRV = { src: id, at: new Date().toISOString(), docs, err: '' };
   } catch (e) {
     DRV = { src: id, docs: DRV.src === id ? DRV.docs : [], at: new Date().toISOString(), err: /fetch|network/i.test(e.message) ? 'Tidak bisa membaca Drive (offline, atau link belum dibagikan "Siapa saja yang memiliki link")' : e.message };
@@ -1414,10 +1418,141 @@ async function drvLoad(manual) {
 // buka tab Dokumen → baca ulang otomatis bila cache > 10 menit
 const drvAuto = () => { if (drvId(dokSrc()) && !drvBusy && (!DRV.at || DRV.src !== drvId(dokSrc()) || Date.now() - new Date(DRV.at) > 6e5)) setTimeout(() => drvLoad(false)); };
 
+/* ---------- LONG LEAD MATERIAL dari log Google Drive (hanya baca, cara sama dengan Dokumen) ----------
+   Sheet "LOG LIST OF LONG LEAD MATERIAL": kolom dicari dari judulnya (Material/Equipment, Lead Time, Required On Site, …).
+   Link disimpan di master tim (push_master.py --ll-link) atau per perangkat; tidak ada di kode publik. */
+const LL_KEY = lsKunci('lps-ll', 'll');
+let LLD = (() => { try { return JSON.parse(localStorage.getItem(LL_KEY)) || {}; } catch { return {}; } })();
+let llBusy = false;
+const llSrc = () => D.settings.llSrc || D.llSrc || '';
+const llItems = () => (LLD.src && LLD.src === drvId(llSrc()) && LLD.items) || [];
+// tanggal dari teks bebas: "31 Jan 2027", "MOS Maks W1 February 2027", "Partial 1 - W3 Desember 2026, …" → tanggal paling awal
+function llTgl(s) {
+  s = String(s || ''); const out = [], p2 = v => String(v).padStart(2, '0'), mo = m => BLN_N[m.slice(0, 3).toLowerCase()];
+  for (const m of s.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g)) out.push(m[0]);
+  for (const m of s.matchAll(/\b(\d{1,2})[\s-]+([A-Za-z]{3,})\.?[\s-]+(\d{4})/g)) if (mo(m[2])) out.push(`${m[3]}-${p2(mo(m[2]))}-${p2(m[1])}`);
+  for (const m of s.matchAll(/\bW\s*([1-5])\s+([A-Za-z]{3,})\s+(\d{4})/gi)) if (mo(m[2])) out.push(`${m[3]}-${p2(mo(m[2]))}-${p2(1 + (m[1] - 1) * 7)}`);
+  return out.sort()[0] || null;
+}
+// lead time teks → hari (ambil yang terpanjang: "Ready Stock & Indent 3 Months" = 90)
+function llDur(s) {
+  s = String(s || '').toLowerCase(); let d = null;
+  for (const m of s.matchAll(/(\d+(?:[.,]\d+)?)(?:\s*-\s*(\d+(?:[.,]\d+)?))?\s*(week|minggu|month|bulan|day|hari)/g)) {
+    const n = parseFloat((m[2] || m[1]).replace(',', '.')), k = /week|minggu/.test(m[3]) ? 7 : /month|bulan/.test(m[3]) ? 30 : 1;
+    d = Math.max(d ?? 0, Math.round(n * k));
+  }
+  return d ?? (/ready/.test(s) ? 0 : null);
+}
+function llSheet(rows) {
+  const hi = rows.findIndex(r => r.some(c => /material\s*\/\s*equipment/i.test(c)));
+  if (hi < 0) return [];
+  const H = rows[hi].map(c => String(c).replace(/\s+/g, ' ').trim().toLowerCase()), m = H.findIndex(h => /material\s*\/\s*equipment/.test(h));
+  // judul kolom angka (No, Qty, Planned PO Date, Progress) bisa kosong di CSV → posisi baku relatif kolom Material/Equipment
+  const col = (re, off) => { const i = H.findIndex(h => re.test(h)); return i >= 0 ? i : m + off; };
+  const C = { dis: col(/dicipline|discipline|disiplin/, 1), area: col(/^area/, 2), vendor: col(/vendor|supplier/, 3), eng: col(/engineering status/, 4), ref: col(/submittal ref|po\/submittal/, 5),
+    qty: col(/^qty/, 6), unit: col(/^unit/, 7), lead: col(/lead time/, 8), ros: col(/required on site/, 9), ppo: col(/planned po/, 10), apo: col(/actual po/, 11),
+    sub: col(/^submittal status/, 12), proc: col(/procurement/, 13), manu: col(/manufactur/, 14), del: col(/delivery status/, 15), parr: col(/planned arrival/, 16),
+    farr: col(/forecast arrival/, 17), prog: col(/^progress/, 18), dev: col(/deviation/, 19), upd: col(/weekly/, 20), risk: col(/risk/, 21), act: col(/action/, 22),
+    pic: col(/^pic/, 23), last: col(/last update/, 24), rem: col(/remark/, 25) };
+  let n = 0;
+  return rows.slice(hi + 1).map(r => {
+    const c = i => String(r[i] ?? '').trim(), nama = c(m);
+    if (!nama) return null;
+    const x = Object.fromEntries(Object.entries(C).map(([k, i]) => [k, c(i)]));
+    let pg = parseFloat(String(x.prog).replace(',', '.')); if (isNaN(pg)) pg = null; else if (!/%/.test(x.prog) && pg > 0 && pg <= 1) pg *= 100;
+    return { id: 'll' + (++n), nama, ...x, prog: pg };
+  }).filter(Boolean);
+}
+async function llLoad(manual) {
+  const id = drvId(llSrc()); if (!id || llBusy) return;
+  llBusy = true; if (UI.view === 'sd') render();
+  const base = `https://docs.google.com/spreadsheets/d/${id}/`;
+  try {
+    const sh = await drvTabs(base);
+    const items = (await Promise.all(sh.map(async ([n, gid]) => llSheet(await drvCsv(base, gid, n)).map(x => ({ ...x, link: base + 'edit#gid=' + gid }))))).flat();
+    LLD = { src: id, at: new Date().toISOString(), items, err: items.length ? '' : 'Kolom "Material/Equipment" tidak ditemukan di file ini.' };
+  } catch (e) {
+    LLD = { src: id, items: LLD.src === id ? LLD.items : [], at: new Date().toISOString(), err: /fetch|network/i.test(e.message) ? 'Tidak bisa membaca Drive (offline, atau link belum dibagikan "Siapa saja yang memiliki link")' : e.message };
+  }
+  llBusy = false;
+  try { localStorage.setItem(LL_KEY, JSON.stringify(LLD)); } catch { /* penyimpanan penuh */ }
+  render();
+  if (manual) toast(LLD.err || `${LLD.items.length} item long lead dibaca dari Drive`);
+}
+const llAuto = () => { const id = drvId(llSrc()); if (id && !llBusy && (!LLD.at || LLD.src !== id || Date.now() - new Date(LLD.at) > 6e5)) setTimeout(() => llLoad(false)); };
+// status item terhadap HARI INI: tanggal butuh di site (ROS), batas PO = Planned PO atau ROS − lead time
+function llInfo(x) {
+  const d = tgl(), ros = llTgl(x.ros), lead = llDur(x.lead), poTgl = llTgl(x.apo), po = poTgl || (x.apo && !/^(not|belum|-)/i.test(x.apo) ? x.apo : '');
+  const bPO = llTgl(x.ppo) || (ros && lead != null ? addDays(ros, -lead) : null), bHitung = !llTgl(x.ppo) && !!bPO;
+  const tiba = /deliver|arriv|on ?site|received|complete|tiba/i.test(x.del) && !/not|belum|partial|on the way/i.test(x.del);
+  const appr = /approv/i.test(x.eng) && !/not/i.test(x.eng), tibaT = llTgl(x.farr) || llTgl(x.parr);
+  const sisa = ros ? days(d, ros) : null;
+  const st = tiba ? 'tiba' : !ros ? 'cek' : ros < d ? 'lewat' : !po && bPO && bPO < d ? 'po' : (tibaT && tibaT > ros) ? 'telat'
+    : sisa <= 30 || (!po && bPO && days(d, bPO) <= 14) ? 'kritis' : 'aman';
+  return { ros, lead, po, poTgl, bPO, bHitung, tiba, appr, sisa, tibaT, st };
+}
+const LL_ST = { lewat: ['bad', 'Lewat tgl butuh di site'], po: ['bad', 'PO terlambat'], telat: ['bad', 'Tiba setelah tgl butuh'], kritis: ['warn', 'Kritis'], cek: ['', 'Tanggal belum jelas'], aman: ['ok', 'On track'], tiba: ['info', 'Sudah tiba'] };
+const LL_URUT = ['lewat', 'po', 'telat', 'kritis', 'cek', 'aman', 'tiba'];
+const LL_F = { '': 'Semua', aksi: 'Perlu tindakan', ma: 'Belum approve', nopo: 'Belum PO', tiba: 'Sudah tiba' };
+const llCocok = (o, f) => !f || (f === 'aksi' ? ['lewat', 'po', 'telat', 'kritis'].includes(o.i.st) : f === 'ma' ? !o.i.appr : f === 'nopo' ? !o.i.po : f === 'tiba' ? o.i.tiba : true);
+const llDisOf = x => x.dis || 'Lainnya';
+function vLL() {
+  llAuto();
+  const id = drvId(llSrc());
+  if (!id) return `<div class="card"><b>Tracking long lead material dari Google Drive</b><p class="muted" style="font-size:13px">Tempel link file log long lead (akses link: "Siapa saja yang memiliki link" – Pelihat). Aplikasi hanya membaca, tidak mengubah file.</p><button class="btn pri" data-act="ll-set">Atur link long lead</button></div>`;
+  const q = UI.llQ.toLowerCase().trim(), all0 = llItems().map(x => ({ x, i: llInfo(x) }));
+  const all = all0.filter(o => (!UI.llDis || llDisOf(o.x) === UI.llDis) && (!q || [o.x.nama, o.x.vendor, o.x.area, o.x.dis, o.x.pic, o.x.risk, o.x.act].join(' ').toLowerCase().includes(q)));
+  const L = all.filter(o => llCocok(o, UI.llF)).sort((a, b) => LL_URUT.indexOf(a.i.st) - LL_URUT.indexOf(b.i.st) || String(a.i.ros || '9').localeCompare(String(b.i.ros || '9')));
+  const disL = [...new Set(all0.map(o => llDisOf(o.x)))];
+  const nF = f => all.filter(o => llCocok(o, f)).length;
+  const tg = (l, v, cls = '') => v ? `<span${cls ? ` class="${cls}"` : ''}><small class="muted">${l}</small> ${v}</span>` : '';
+  const chipS = (l, v) => v ? `<span class="chip ${/not|belum/i.test(v) ? '' : /approv|complete|deliver|done|selesai|issued|received/i.test(v) ? 'ok' : 'info'}">${esc(l)}: ${esc(v)}</span>` : '';
+  return `<div class="card" style="padding:10px 14px"><div class="bar" style="margin:0">
+      <span class="muted" style="font-size:13px">Log long lead Drive (hanya baca) · ${llBusy ? 'membaca…' : LLD.at && LLD.src === id ? `${llItems().length} item · dibaca ${new Date(LLD.at).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : 'belum dibaca'}</span>
+      <span style="flex:1"></span><button class="btn sm" data-act="ll-load" ${llBusy ? 'disabled' : ''}>Muat ulang</button><button class="btn sm" data-act="ll-set">Link</button>${llItems()[0]?.link ? `<a class="btn sm" href="${esc(llItems()[0].link)}" target="_blank" rel="noopener">Buka log</a>` : ''}</div>
+      ${LLD.err && LLD.src === id ? `<p class="muted" style="color:var(--bad);margin:6px 0 0;font-size:13px">${esc(LLD.err)}</p>` : ''}</div>
+  <div class="grid kpis">
+    <div class="kpi"><b>${all.length}</b><span>Item long lead</span></div>
+    <div class="kpi ${nF('aksi') ? 'bad' : 'ok'}"><b>${nF('aksi')}</b><span>Perlu tindakan (kritis / terlambat)</span></div>
+    <div class="kpi ${nF('ma') ? 'warn' : 'ok'}"><b>${nF('ma')}</b><span>Material approval belum approve</span></div>
+    <div class="kpi ${nF('nopo') ? 'warn' : 'ok'}"><b>${nF('nopo')}</b><span>Belum PO</span></div>
+    <div class="kpi info"><b>${nF('tiba')}</b><span>Sudah tiba di site</span></div>
+  </div>
+  <div class="prio-f">${Object.entries(LL_F).map(([k, l]) => `<button type="button" data-act="ll-f" data-v="${k}" class="${UI.llF === k ? 'on' : ''}">${l} <b>${nF(k)}</b></button>`).join('')}</div>
+  <div class="prio-f kat-f"><button type="button" data-act="ll-dis" data-v="" class="${UI.llDis ? '' : 'on'}">Semua disiplin</button>${disL.map(d => `<button type="button" data-act="ll-dis" data-v="${esc(d)}" class="${UI.llDis === d ? 'on' : ''}">${esc(d)} <b>${all0.filter(o => llDisOf(o.x) === d).length}</b></button>`).join('')}</div>
+  <div class="bar"><input type="search" data-ui="llQ" value="${esc(UI.llQ)}" placeholder="Cari material / vendor / area / PIC" style="flex:1;min-width:160px"></div>
+  ${L.map(({ x, i }) => { const [cl, lb] = LL_ST[i.st], nm = x.nama.split('\n').map(s => s.trim()).filter(Boolean);
+    return `<div class="item">
+      <div class="hd"><div><span class="ttl">${esc(nm[0])}</span>${nm.length > 1 ? `<small class="muted" style="display:block">${esc(nm.slice(1).join(' · '))}</small>` : ''}
+        <div class="sub">${esc([x.dis, x.area, x.vendor].filter(Boolean).join(' · '))}</div></div>
+        <div class="chips"><span class="chip ${cl}">${lb}</span><span class="chip ${i.appr ? 'ok' : /submit/i.test(x.eng) ? 'info' : 'warn'}">MA: ${esc(x.eng || '–')}</span></div></div>
+      <div class="meta">${tg('Qty', esc([x.qty, x.unit].filter(Boolean).join(' ')))}${tg('Lead time', esc(x.lead) + (i.lead ? ` (±${i.lead} hr)` : ''))}
+        ${tg('Butuh di site', i.ros ? `<b>${fmt(i.ros)}</b>${i.tiba ? '' : ` · ${i.sisa < 0 ? `<span style="color:var(--bad)">lewat ${-i.sisa} hr</span>` : i.sisa + ' hr lagi'}`}${x.ros && !/^\d/.test(x.ros) ? ` <small class="muted">(${esc(x.ros.replace(/\s+/g, ' '))})</small>` : ''}` : esc(x.ros) || '<i>belum diisi</i>')}
+        ${tg(i.bHitung ? 'Batas PO (ROS − lead)' : 'Rencana PO', i.bPO && !i.po ? `<b style="color:${i.bPO < tgl() ? 'var(--bad)' : 'inherit'}">${fmt(i.bPO)}</b>` : i.bPO ? fmt(i.bPO) : '')}
+        ${tg('PO', i.po ? esc(i.poTgl ? fmt(i.poTgl) : i.po) : '<i>belum</i>')}${tg('Perkiraan tiba', i.tibaT ? fmt(i.tibaT) : esc(x.farr || x.parr).replace(/\n/g, ' '))}${x.ref ? tg('Ref', esc(x.ref)) : ''}</div>
+      <div style="display:flex;align-items:center;gap:8px;margin:8px 0 0"><div class="bar-h" style="flex:1"><i style="width:${Math.min(x.prog || 0, 100)}%"></i></div><small class="muted">Progress ${x.prog == null ? '–' : pc(x.prog)}${x.dev ? ` · deviasi ${esc(x.dev)} hr` : ''}</small></div>
+      <div class="chips" style="justify-content:flex-start;margin-top:6px">${chipS('Submittal', x.sub)}${chipS('Procurement', x.proc)}${chipS('Manufacturing', x.manu)}${chipS('Delivery', x.del)}</div>
+      ${x.upd ? `<div class="fu">Update: ${esc(x.upd)}</div>` : ''}${x.risk ? `<div class="fu" style="border-color:var(--bad)">⚠ ${esc(x.risk)}</div>` : ''}${x.act ? `<div class="fu">→ ${esc(x.act)}</div>` : ''}
+      ${x.pic || x.last || x.rem ? `<div class="muted" style="font-size:12px;margin-top:6px">${esc([x.pic && 'PIC/kontak: ' + x.pic, x.last && 'update ' + (llTgl(x.last) ? fmt(llTgl(x.last)) : x.last), x.rem].filter(Boolean).join(' · '))}</div>` : ''}
+    </div>`; }).join('') || `<div class="empty">${llBusy ? 'Membaca log long lead dari Drive…' : 'Tidak ada item untuk filter ini.'}</div>`}
+  <p class="muted" style="font-size:12px">Status dihitung terhadap tanggal hari ini: <b>PO terlambat</b> = belum PO dan sudah lewat rencana PO (atau tgl butuh di site − lead time); <b>Kritis</b> = butuh di site ≤ 30 hari atau batas PO ≤ 14 hari. "W1 Februari 2027" dibaca tanggal 1, W2 = tanggal 8, dst.</p>`;
+}
+function llSet() {
+  openDlg(`<h3>Link log long lead (Google Drive)</h3>
+    <label class="f">Link Google Sheet / file Excel di Drive<input type="text" name="src" inputmode="url" value="${esc(D.settings.llSrc || '')}" placeholder="${D.llSrc ? 'Dari Sheet tim (biarkan kosong)' : 'https://docs.google.com/spreadsheets/d/…'}"></label>
+    <p class="muted" style="font-size:13px">Aplikasi hanya membaca file ini; tidak ada yang ditulis ke Drive. Akses link harus "Siapa saja yang memiliki link" (Pelihat).
+    ${D.llSrc ? '<br>Link tim sudah diatur admin (push_master.py --ll-link). Isi di sini hanya bila ingin memakai link lain di perangkat ini.' : '<br>Agar berlaku untuk semua anggota tim, admin menjalankan push_master.py dengan --ll-link.'}</p>
+    <div class="dlg-act"><span class="sp"></span><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Simpan</button></div>`, fd => {
+    const s = String(fd.get('src') || '').trim();
+    if (s && !drvId(s)) { toast('Link tidak dikenali – salin link dari tombol Bagikan'); return; }
+    D.settings.llSrc = s; persist(); LLD = {}; render(); llLoad(true);
+  });
+}
+
 function vSD() {
   return `<div class="vh"><h2>Sumber daya</h2></div>
-  <div class="prio-f">${[['mp', 'Manpower'], ['dok', 'Dokumen']].map(([k, l]) => `<button type="button" data-act="sd-tab" data-v="${k}" class="${UI.sd === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-  ${UI.sd === 'dok' ? vDok() : vMp()}`;
+  <div class="prio-f">${[['mp', 'Manpower'], ['dok', 'Dokumen'], ['ll', 'Long lead']].map(([k, l]) => `<button type="button" data-act="sd-tab" data-v="${k}" class="${UI.sd === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+  ${UI.sd === 'dok' ? vDok() : UI.sd === 'll' ? vLL() : vMp()}`;
 }
 
 function vMp() {
@@ -1519,6 +1654,7 @@ function vDok() {
     <div class="kpi info"><b>${n('Submitted')}</b><span>Menunggu review</span></div>
     <div class="kpi warn"><b>${n('Revisi') + n('Rejected')}</b><span>Not approved / Revisi / Rejected</span></div>
     <div class="kpi ${lw ? 'bad' : ''}"><b>${lw}</b><span>Lewat target</span></div>
+    ${(() => { const a = all.filter(x => x.drive && x.status === 'Approved'), k = a.filter(x => !x.file).length; return a.length ? `<div class="kpi ${k ? 'warn' : 'ok'}"><b>${a.length - k}<small class="muted" style="font-size:13px"> / ${a.length}</small></b><span>Approved sudah ada link file</span></div>` : ''; })()}
   </div>
   <div class="prio-f">${Object.entries(FD).map(([k, l]) => `<button type="button" data-act="dok-f" data-v="${k}" class="${f === k ? 'on' : ''}">${l}${DOK_FX[k] ? ` <b>${all.filter(DOK_FX[k]).length}</b>` : ''}</button>`).join('')}</div>
   <div class="prio-f kat-f"><button type="button" data-act="dok-kat" data-v="" class="${jn ? '' : 'on'}">Semua kategori <b>${base.length}</b></button>${katL.map(k => `<button type="button" data-act="dok-kat" data-v="${esc(k)}" class="${jn === k ? 'on' : ''}">${esc(k)} <b>${nKat(k)}</b></button>`).join('')}</div>
@@ -1544,7 +1680,7 @@ function vDok() {
         const tanggal = [x.tglSubmit ? tl('Submit', x.tglSubmit) : tl(x.drive ? 'Rencana' : 'Target', x.target),
           x.drive ? [tl('CW', x.cw), tl('Owner', x.own)].filter(Boolean).join('<br>') : tl('Approve', x.tglApprove)].filter(Boolean).join('<br>');
         h += `<tr id="d-${esc(x.id)}" data-act="dok-info" data-id="${esc(x.id)}">
-          <td><span class="code">${esc(x.nomor || '(tanpa nomor)')}${x.rev ? ' · Rev ' + x.rev : ''}</span><br>${esc(x.nama)}${x.issue ? `<small class="dok-rem">${esc(x.issue)}</small>` : ''}</td>
+          <td><span class="code">${esc(x.nomor || '(tanpa nomor)')}${x.rev ? ' · Rev ' + x.rev : ''}</span>${x.file ? ' <span class="chip ok" title="Link dokumen tersimpan">📎 file</span>' : x.drive && x.status === 'Approved' ? ' <span class="chip warn" title="Approved tapi kolom Approved Doc. Link masih kosong">link file?</span>' : ''}<br>${esc(x.nama)}${x.issue ? `<small class="dok-rem">${esc(x.issue)}</small>` : ''}</td>
           <td class="w-l">${esc(x.pic || '–')}</td>
           <td>${dokStChip(x)}${lw ? `<br><span class="chip bad">lewat</span>` : umurDok(x) != null ? '<br>' + umurChip(x) : ''}</td>
           <td class="n dok-tg">${tanggal || '–'}</td></tr>`;
@@ -1576,9 +1712,9 @@ function dokInfo(id) {
       ${row('Task LPS', tasks.map(k => `<a href="#ready" data-act="goto-ready" data-kode="${esc(k)}" class="chip info" style="text-decoration:none">${esc(k)}</a>`).join(' '))}
     </table>
     ${x.riwayat ? `<details open style="margin-top:8px"><summary class="muted" style="font-size:13px">Riwayat revisi</summary><pre class="riwayat">${esc(x.riwayat)}</pre></details>` : ''}
-    ${x.drive ? '<p class="muted" style="font-size:12px">Dari log Google Drive (hanya baca). Perubahan dilakukan di file Drive.</p>' : ''}
+    ${x.drive ? `<p class="muted" style="font-size:12px">Dari log Google Drive (hanya baca). Perubahan dilakukan di file Drive.${x.file ? '' : ' Link file dokumen belum diisi di kolom <b>Approved Doc. Link</b>.'}</p>` : ''}
     <div class="dlg-act" style="flex-wrap:wrap">${next.map(([v, l]) => `<button type="button" class="btn sm ${v === 'Approved' ? 'pri' : v === 'Rejected' ? 'danger' : ''}" data-act="dok-st" data-id="${esc(x.id)}" data-v="${v}">${esc(l)}</button>`).join('')}
-      <span class="sp"></span>${x.link ? `<a class="btn" href="${esc(x.link)}" target="_blank" rel="noopener">${x.drive ? 'Buka log' : 'Buka file'}</a>` : ''}${x.drive ? '' : `<button type="button" class="btn" data-act="dok-edit" data-id="${esc(x.id)}">Ubah</button>`}
+      <span class="sp"></span>${x.file ? `<a class="btn pri" href="${esc(x.file)}" target="_blank" rel="noopener">Buka dokumen${x.fileRev != null && x.fileRev !== x.rev ? ' (Rev ' + x.fileRev + ')' : ''}</a>` : ''}${x.link ? `<a class="btn" href="${esc(x.link)}" target="_blank" rel="noopener">${x.drive ? 'Buka log' : 'Buka file'}</a>` : ''}${x.drive ? '' : `<button type="button" class="btn" data-act="dok-edit" data-id="${esc(x.id)}">Ubah</button>`}
       <button value="cancel" class="btn" formnovalidate>Tutup</button></div>`, null);
 }
 function drvSet() {
@@ -1957,6 +2093,10 @@ document.addEventListener('click', e => {
     case 'dok-kat': UI.dokJenis = el.dataset.v; UI.dokSub = ''; UI.dokTutup = []; render(); break;
     case 'dok-grp': { const k = el.dataset.v; UI.dokTutup = UI.dokTutup.includes(k) ? UI.dokTutup.filter(x => x !== k) : [...UI.dokTutup, k]; render(); break; }
     case 'drv-set': drvSet(); break;
+    case 'll-set': llSet(); break;
+    case 'll-load': llLoad(true); break;
+    case 'll-f': UI.llF = el.dataset.v; render(); break;
+    case 'll-dis': UI.llDis = el.dataset.v; render(); break;
     case 'dok-new': editDok(normDok({ scope: D.disiplin[0], status: 'Draft', rev: 0 }), true); break;
     case 'dok-info': dokInfo(el.dataset.id); break;
     case 'dok-edit': editDok({ ...D.dokumen.find(x => x.id === el.dataset.id) }, false); break;
@@ -2137,7 +2277,7 @@ document.addEventListener('input', e => {
     return;
   }
   const k = e.target.dataset.ui;
-  if (k !== 'jSearch' && k !== 'dokQ' && k !== 'lgQ') return;
+  if (k !== 'jSearch' && k !== 'dokQ' && k !== 'lgQ' && k !== 'llQ') return;
   UI[k] = e.target.value;
   const pos = e.target.selectionStart;
   render();
