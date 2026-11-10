@@ -66,7 +66,7 @@ const opt = (v, cur, label) => `<option value="${esc(v)}"${String(v) === String(
 const pct = (x, d = 0) => x == null || isNaN(x) ? '–' : (x * 100).toFixed(d) + '%';
 
 let D = null;
-const UI = { hTab: '', lgFrom: null, lgTo: null, lgPeny: '', lgDis: '', lgPic: '', lgQ: '', lgAll: false, lgWaste: '', wBuka: {}, wPilih: false, rBuka: {}, jdBuka: {}, view: 'dash', week: '', jSearch: '', jDis: '', jLook: '2', jFrom: null, harianTgl: null, focus: null, fPrio: '', sd: 'mp', mpTgl: null, mpAll: false, dokF: 'open', dokScope: '', dokJenis: '', dokSub: '', dokQ: '', dokTutup: [], llF: '', llDis: '', llQ: '' };
+const UI = { hTab: '', lgFrom: null, lgTo: null, lgPeny: '', lgDis: '', lgPic: '', lgQ: '', lgAll: false, lgWaste: '', wBuka: {}, wPilih: false, rBuka: {}, jdBuka: {}, view: 'dash', week: '', jSearch: '', jDis: '', jLook: '2', jFrom: null, harianTgl: null, focus: null, fPrio: '', sd: 'mp', mpTgl: null, mpAll: false, dokF: 'open', dokScope: '', dokJenis: '', dokSub: '', dokQ: '', dokTutup: [], llF: '', llDis: '', llQ: '', kTo: '' };
 
 /* ---------- tanggal ---------- */
 const todayISO = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
@@ -120,6 +120,11 @@ function stP(t) {
   return 'ON PROGRESS';
 }
 const inW = w => t => w === '' || +t.minggu === +w;
+const rangeOn = (w, w2) => w !== '' && w != null && w2 !== '' && w2 != null && +w2 > +w;
+const inWR = (w, w2) => rangeOn(w, w2) ? t => +t.minggu >= +w && +t.minggu <= +w2 : inW(w);
+const kRange = () => rangeOn(UI.week, UI.kTo);
+const perLabel = (w, w2) => { const a = w === '' ? null : weekObj(w), b = rangeOn(w, w2) ? weekObj(w2) : null;
+  return !a ? 'Semua minggu' : b ? `W${a.w}–W${b.w} · ${fmt(a.start)} – ${fmt(b.end)}` : `W${a.w} · ${fmt(a.start)} – ${fmt(a.end)}`; };
 const inWeek = t => inW(UI.week)(t);
 const planTasks = () => D.tasks.filter(t => t.disepakati === 'Ya' && inWeek(t));
 function stJadwal(p) {
@@ -129,10 +134,10 @@ function stJadwal(p) {
   if (p.selesai < d) return 'Selesai (jadwal)';
   return 'Berjalan';
 }
-function issueList(w = UI.week) {
+function issueList(w = UI.week, w2 = '') {
   const out = [];
   for (const t of D.tasks) {
-    if (t.disepakati !== 'Ya' || !inW(w)(t)) continue;
+    if (t.disepakati !== 'Ya' || !inWR(w, w2)(t)) continue;
     for (const k of KK) {
       const c = t.k[k];
       if (c.st !== 'Pending') continue;
@@ -790,7 +795,7 @@ function lanjutkan(t) {
   return n;
 }
 function vKomit() {
-  const ts = D.tasks.filter(inWeek).filter(prioOK).sort((a, b) => byPrio(a, b) || a.minggu - b.minggu || a.kode.localeCompare(b.kode));
+  const rg = kRange(), ts = D.tasks.filter(inWR(UI.week, UI.kTo)).filter(prioOK).sort((a, b) => (rg ? a.minggu - b.minggu : 0) || byPrio(a, b) || a.minggu - b.minggu || a.kode.localeCompare(b.kode));
   let gap = TL().length ? tlGapCard(tlWeek()) : '';
   if (!TL().length && UI.week !== '') {
     const w = weekObj(UI.week);
@@ -801,19 +806,29 @@ function vKomit() {
     </details>`;
   }
   const n = ts.length, ya = ts.filter(t => t.disepakati === 'Ya').length, cw = weekOf(tgl());
-  const lj = UI.week === '' ? [] : D.tasks.filter(t => +t.minggu === +UI.week && perluLanjut(t));
+  const lj = UI.week === '' || rg ? [] : D.tasks.filter(t => +t.minggu === +UI.week && perluLanjut(t));
   const kw = [...(weekObj(cw - 1) ? [[String(cw - 1), `Minggu lalu · W${cw - 1}`]] : []), [String(cw), `Minggu ini · W${cw}`], ...(weekObj(cw + 1) ? [[String(cw + 1), `Minggu depan · W${cw + 1}`]] : []), ['', 'Semua minggu']];
   return `
-  ${vh(`Komitmen mingguan ${UI.week === '' ? '' : '· W' + UI.week}`, 'komit')}
-  <div class="prio-f">${kw.map(([v, l]) => `<button type="button" data-act="kw" data-v="${v}" class="${String(UI.week) === v ? 'on' : ''}">${l}</button>`).join('')}${UI.week !== '' && !kw.some(([v]) => v === String(UI.week)) ? `<button type="button" class="on" data-act="kw" data-v="${UI.week}">W${UI.week}</button>` : ''}</div>
+  ${vh(`Komitmen mingguan ${UI.week === '' ? '' : '· W' + UI.week + (rg ? '–W' + UI.kTo : '')}`, 'komit')}
+  <div class="prio-f">${kw.map(([v, l]) => `<button type="button" data-act="kw" data-v="${v}" class="${!rg && String(UI.week) === v ? 'on' : ''}">${l}</button>`).join('')}${UI.week !== '' && !rg && !kw.some(([v]) => v === String(UI.week)) ? `<button type="button" class="on" data-act="kw" data-v="${UI.week}">W${UI.week}</button>` : ''}<button type="button" data-act="k-rg" class="${rg ? 'on' : ''}">Beberapa minggu…</button></div>
+  ${rg || UI.kRgBuka ? `<div class="bar k-rg"><span class="muted" style="font-size:13px">Rentang</span>
+    <select data-ui="week" aria-label="Dari minggu">${D.meta.weeks.map(x => opt(x.w, UI.week === '' ? cw : UI.week, `W${x.w} · ${x.label}${x.w === cw ? ' (ini)' : ''}`)).join('')}</select>
+    <span class="muted">s/d</span>
+    <select data-ui="kTo" aria-label="Sampai minggu">${opt('', rg ? UI.kTo : '', '— pilih —')}${D.meta.weeks.filter(x => UI.week === '' || x.w > +UI.week).map(x => opt(x.w, UI.kTo, `W${x.w} · ${x.label}`)).join('')}</select>
+    ${rg ? '<button type="button" class="btn sm" data-act="kw" data-v="' + UI.week + '">Hanya 1 minggu</button>' : ''}</div>` : ''}
   ${prioBar()}
-  ${UI.week !== '' && +UI.week <= cw ? (() => { const w = +UI.week, S = D.tasks.filter(t => +t.minggu === w && t.disepakati === 'Ya'), fin = S.filter(t => (prog(t.kode) || 0) >= 100), P = ppcWeek(w);
+  ${rg ? (() => { const ws = D.meta.weeks.filter(x => x.w >= +UI.week && x.w <= +UI.kTo);
+    return `<div class="card" style="padding:10px 12px"><b>Ringkasan W${UI.week}–W${UI.kTo}</b><div class="scroll"><table class="tbl"><tr><th>Minggu</th><th class="n">Task</th><th class="n">Disepakati</th><th class="n">Selesai 100%</th><th class="n">PPC</th></tr>
+      ${ws.map(x => { const T = D.tasks.filter(t => +t.minggu === x.w && prioOK(t)), S = T.filter(t => t.disepakati === 'Ya'), F = S.filter(t => (prog(t.kode) || 0) >= 100), P = ppcWeek(x.w);
+        return `<tr${x.w === cw ? ' style="background:var(--warn-bg)"' : ''}><td>W${x.w} <small class="muted">${esc(x.label)}</small></td><td class="n">${T.length}</td><td class="n">${S.length}</td><td class="n">${F.length}</td><td class="n">${x.w <= cw ? pct(P.ppc) : '–'}</td></tr>`; }).join('')}</table></div></div>`; })() : ''}
+  ${!rg && UI.week !== '' && +UI.week <= cw ? (() => { const w = +UI.week, S = D.tasks.filter(t => +t.minggu === w && t.disepakati === 'Ya'), fin = S.filter(t => (prog(t.kode) || 0) >= 100), P = ppcWeek(w);
     return `<div class="card" style="padding:10px 12px"><b>${w === cw ? `Progres W${w} (berjalan)` : `Hasil W${w}`}</b>: ${S.length} disepakati · <b>${fin.length} selesai 100%</b> · ${S.length - fin.length} belum · PPC (Finish ÷ Final) <b>${pct(P.ppc)}</b>
       ${S.length ? `<div class="bar-h" style="margin-top:6px"><i style="width:${fin.length / S.length * 100}%"></i></div>` : ''}</div>`; })() : ''}
   ${lj.length ? `<div class="fu" style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span style="flex:1;min-width:200px"><b>${lj.length} task W${UI.week}</b> belum selesai / ditunda dan belum dilanjutkan ke W${+UI.week + 1}.</span><button class="btn sm" data-act="lanjut-semua" data-w="${UI.week}">Lanjutkan semua ke W${+UI.week + 1}</button></div>` : ''}
   <p class="muted" style="margin-top:-6px">${n} task · ${ya} disepakati${n ? ' (' + pct(ya / n) + ')' : ''}. Pilih <b>Ya</b> saat rapat mingguan untuk task yang sanggup dikerjakan.</p>
   ${gap}
-  ${ts.map(t => `
+  ${ts.map((t, i) => `${rg && (i === 0 || ts[i - 1].minggu !== t.minggu) ? (() => { const o = weekObj(t.minggu), T = ts.filter(x => x.minggu === t.minggu);
+      return `<h3 class="k-wk">W${t.minggu}${o ? ` <small class="muted">${fmt(o.start)} – ${fmt(o.end)} · ${T.length} task · ${T.filter(x => x.disepakati === 'Ya').length} disepakati</small>` : ''}</h3>`; })() : ''}
     <div class="item" id="k-${esc(t.kode)}">
       <div class="hd"><div><span class="code">${esc(t.kode)}</span> <span class="ttl">${esc(t.uraian || '(tanpa uraian)')}</span>
         <div class="sub">${esc(t.pekerjaan)}</div></div>
@@ -1496,6 +1511,56 @@ const LL_URUT = ['lewat', 'po', 'telat', 'kritis', 'cek', 'aman', 'tiba'];
 const LL_F = { '': 'Semua', aksi: 'Perlu tindakan', ma: 'Belum approve', nopo: 'Belum PO', tiba: 'Sudah tiba' };
 const llCocok = (o, f) => !f || (f === 'aksi' ? ['lewat', 'po', 'telat', 'kritis'].includes(o.i.st) : f === 'ma' ? !o.i.appr : f === 'nopo' ? !o.i.po : f === 'tiba' ? o.i.tiba : true);
 const llDisOf = x => x.dis || 'Lainnya';
+// o = { f, dis, q } → [{ x, i }] terurut: paling mendesak dulu, lalu tanggal butuh di site
+function llFilter(o) {
+  const q = String(o.q || '').toLowerCase().trim();
+  return llItems().map(x => ({ x, i: llInfo(x) }))
+    .filter(r => (!o.dis || llDisOf(r.x) === o.dis) && (!q || [r.x.nama, r.x.vendor, r.x.area, r.x.dis, r.x.pic, r.x.risk, r.x.act].join(' ').toLowerCase().includes(q)) && llCocok(r, o.f))
+    .sort((a, b) => LL_URUT.indexOf(a.i.st) - LL_URUT.indexOf(b.i.st) || String(a.i.ros || '9').localeCompare(String(b.i.ros || '9')));
+}
+function pdfLLForm() {
+  const disL = [...new Set(llItems().map(llDisOf))];
+  return `<h3>PDF Long Lead Material</h3>
+  <p class="muted" style="font-size:13px;margin-top:0">Terisi sesuai filter di layar; ubah bila perlu.</p>
+  <div class="frow">
+    <label class="f">Status / filter<select name="f">${Object.entries(LL_F).map(([k, l]) => opt(k, UI.llF, l)).join('')}</select></label>
+    <label class="f">Disiplin<select name="dis">${opt('', UI.llDis, 'Semua disiplin')}${disL.map(d => opt(d, UI.llDis)).join('')}</select></label>
+  </div>
+  <div class="frow">
+    <label class="f">Cari<input type="text" name="q" value="${esc(UI.llQ)}" placeholder="material / vendor / area"></label>
+    <label class="f">Susunan<select name="grp">${opt('dis', 'dis', '1 halaman per disiplin')}${opt('satu', 'dis', 'Satu tabel')}</select></label>
+  </div>
+  <label class="f" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="pic" value="1" checked style="width:auto;min-height:0"> Sertakan kolom PIC / kontak vendor</label>
+  <p class="muted" style="font-size:13px">Kertas A4 mendatar, urut dari yang paling mendesak. Di jendela cetak pilih <b>Simpan sebagai PDF</b>.</p>
+  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Buat PDF</button></div>`;
+}
+function printLL(o) {
+  const L = llFilter(o);
+  if (!L.length) { toast('Tidak ada item untuk filter ini'); return; }
+  const groups = o.grp === 'dis' ? [...new Set(L.map(r => llDisOf(r.x)))].map(d => [d, L.filter(r => llDisOf(r.x) === d)]) : [[o.dis || 'Semua disiplin', L]];
+  const filt = [o.f && LL_F[o.f], o.q && `"${o.q}"`].filter(Boolean).join(' · ') || 'Semua item';
+  const head = ['No', 'Material / equipment', 'Area · vendor', 'Qty', 'Lead time', 'Butuh di site', 'Batas / rencana PO', 'PO aktual', 'Perkiraan tiba', 'Material approval', 'Procurement · manufacturing · delivery', 'Progress', 'Status', 'Risk / action / update', ...(o.pic ? ['PIC / kontak'] : [])];
+  const t = v => esc(String(v || '').replace(/\s+/g, ' ').trim());
+  const rows = rs => rs.map(({ x, i }, n) => { const [cl, lb] = LL_ST[i.st];
+    return `<tr><td>${n + 1}</td><td class="nm">${esc(x.nama.trim()).replace(/\n+/g, '<br>')}</td><td>${t([x.area, x.vendor].filter(Boolean).join(' · '))}</td><td>${t([x.qty, x.unit].filter(Boolean).join(' '))}</td>
+      <td>${t(x.lead)}</td><td class="tg">${i.ros ? `<b>${fmt(i.ros)}</b>${i.tiba ? '' : `<br><small>${i.sisa < 0 ? 'lewat ' + -i.sisa : i.sisa} hr</small>`}` : t(x.ros)}${x.ros && !/^\d/.test(x.ros) && i.ros ? `<br><small>${t(x.ros)}</small>` : ''}</td>
+      <td class="tg">${i.bPO ? `${fmt(i.bPO)}${i.bHitung ? '<br><small>ROS − lead</small>' : ''}` : ''}</td><td class="tg">${i.po ? t(i.poTgl ? fmt(i.poTgl) : i.po) : 'belum'}</td>
+      <td class="tg">${i.tibaT ? fmt(i.tibaT) : t(x.farr || x.parr)}</td><td>${t(x.eng)}${x.sub ? `<br><small>Submittal: ${t(x.sub)}</small>` : ''}${x.ref ? `<br><small>${t(x.ref)}</small>` : ''}</td>
+      <td>${[x.proc, x.manu, x.del].map(t).join(' · ')}</td><td class="c">${x.prog == null ? '' : pc(x.prog)}${x.dev ? `<br><small>dev ${t(x.dev)} hr</small>` : ''}</td>
+      <td class="st ${cl}">${lb}</td><td class="rm">${[x.risk && '⚠ ' + x.risk, x.act && '→ ' + x.act, x.upd, x.rem].filter(Boolean).map(t).join('<br>')}</td>${o.pic ? `<td>${t(x.pic)}</td>` : ''}</tr>`; }).join('');
+  const ring = rs => { const c = st => rs.filter(r => r.i.st === st).length;
+    return `${rs.length} item · ${c('lewat')} lewat tgl butuh · ${c('po')} PO terlambat · ${c('telat')} tiba setelah tgl butuh · ${c('kritis')} kritis · ${rs.filter(r => !r.i.appr).length} belum approve · ${rs.filter(r => !r.i.po).length} belum PO · ${c('tiba')} sudah tiba`; };
+  $('#print').innerHTML = groups.map(([g, rs]) => `<section class="pg dok ll">
+    <header><div><b>Tracking Long Lead Material</b><span>${esc(D.meta.project)}</span></div>
+      <div class="pr-meta"><span>Disiplin: <b>${esc(g)}</b></span><span>${esc(filt)} · status per ${fmt(tgl())}</span><span>Dicetak ${fmt(todayISO())}${D.sync.user ? ' oleh ' + esc(D.sync.user) : ''}</span></div></header>
+    <table><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows(rs)}</tbody></table>
+    <p class="pr-n">${ring(rs)}. PO terlambat = belum PO dan lewat batas PO (rencana PO, atau tgl butuh di site − lead time); kritis = butuh di site ≤ 30 hari atau batas PO ≤ 14 hari. Sumber: log long lead Drive, dibaca ${LLD.at ? fmt(LLD.at.slice(0, 10)) : '–'}.</p>
+  </section>`).join('');
+  const judul = document.title;
+  document.title = ['Long_Lead', o.dis || 'Semua', o.f ? LL_F[o.f].replace(/\W+/g, '_') : '', todayISO()].filter(Boolean).join('_');
+  addEventListener('afterprint', () => { document.title = judul; $('#print').innerHTML = ''; }, { once: true });
+  setTimeout(() => print(), 60);
+}
 function vLL() {
   llAuto();
   const id = drvId(llSrc());
@@ -1520,7 +1585,7 @@ function vLL() {
   </div>
   <div class="prio-f">${Object.entries(LL_F).map(([k, l]) => `<button type="button" data-act="ll-f" data-v="${k}" class="${UI.llF === k ? 'on' : ''}">${l} <b>${nF(k)}</b></button>`).join('')}</div>
   <div class="prio-f kat-f"><button type="button" data-act="ll-dis" data-v="" class="${UI.llDis ? '' : 'on'}">Semua disiplin</button>${disL.map(d => `<button type="button" data-act="ll-dis" data-v="${esc(d)}" class="${UI.llDis === d ? 'on' : ''}">${esc(d)} <b>${all0.filter(o => llDisOf(o.x) === d).length}</b></button>`).join('')}</div>
-  <div class="bar"><input type="search" data-ui="llQ" value="${esc(UI.llQ)}" placeholder="Cari material / vendor / area / PIC" style="flex:1;min-width:160px"></div>
+  <div class="bar"><input type="search" data-ui="llQ" value="${esc(UI.llQ)}" placeholder="Cari material / vendor / area / PIC" style="flex:1;min-width:160px"><button type="button" class="btn" data-act="pdf-ll"${llItems().length ? '' : ' disabled'}>Cetak PDF</button></div>
   ${L.map(({ x, i }) => { const [cl, lb] = LL_ST[i.st], nm = x.nama.split('\n').map(s => s.trim()).filter(Boolean);
     return `<div class="item">
       <div class="hd"><div><span class="ttl">${esc(nm[0])}</span>${nm.length > 1 ? `<small class="muted" style="display:block">${esc(nm.slice(1).join(' · '))}</small>` : ''}
@@ -1807,12 +1872,12 @@ const rentang = t => t.mulai || t.selesai ? `${fmt(t.mulai)} – ${fmt(t.selesai
 const REPORTS = {
   komit: { title: 'Komitmen Mingguan', week: true,
     head: ['Kode', 'Prioritas · koordinasi', 'Pekerjaan', 'Uraian', 'Lokasi / Area', 'Rencana', 'Disepakati', 'Progress', 'Alasan / catatan rapat'],
-    rows: o => D.tasks.filter(inW(o.week)).filter(prioOK).sort((a, b) => byPrio(a, b) || a.kode.localeCompare(b.kode)).map(t => ({ pic: picOf(t.pic),
-      cells: [t.kode, prioTxt(t), t.pekerjaan, t.uraian, [t.lokasi, t.area].filter(Boolean).join(' · '), rentang(t), t.disepakati || '–', progTxt(t), t.alasan] })) },
+    rows: o => D.tasks.filter(inWR(o.week, o.week2)).filter(prioOK).sort((a, b) => (rangeOn(o.week, o.week2) || o.week === '' ? a.minggu - b.minggu : 0) || byPrio(a, b) || a.kode.localeCompare(b.kode)).map(t => ({ pic: picOf(t.pic),
+      cells: [t.kode + (o.week === '' || rangeOn(o.week, o.week2) ? '\nW' + t.minggu : ''), prioTxt(t), t.pekerjaan, t.uraian, [t.lokasi, t.area].filter(Boolean).join(' · '), rentang(t), t.disepakati || '–', progTxt(t), t.alasan] })) },
   ready: { title: 'Make Ready – Cek Kendala', week: true,
     head: ['Kode', 'Prioritas · koordinasi', 'Uraian', 'Lokasi', 'Rencana', 'Status kendala', 'Kendala pending (issue · PIC · target)', 'Progress'],
-    rows: o => D.tasks.filter(t => t.disepakati === 'Ya' && inW(o.week)(t) && prioOK(t)).sort((a, b) => byPrio(a, b) || a.kode.localeCompare(b.kode)).map(t => ({ pic: picOf(t.pic),
-      cells: [t.kode, prioTxt(t), t.uraian, t.lokasi, rentang(t), stK(t),
+    rows: o => D.tasks.filter(t => t.disepakati === 'Ya' && inWR(o.week, o.week2)(t) && prioOK(t)).sort((a, b) => (rangeOn(o.week, o.week2) || o.week === '' ? a.minggu - b.minggu : 0) || byPrio(a, b) || a.kode.localeCompare(b.kode)).map(t => ({ pic: picOf(t.pic),
+      cells: [t.kode + (o.week === '' || rangeOn(o.week, o.week2) ? '\nW' + t.minggu : ''), prioTxt(t), t.uraian, t.lokasi, rentang(t), stK(t),
         [...KK.filter(k => t.k[k].st === 'Pending').map(k => { const c = t.k[k]; return `${KAT[k]}: ${c.issue || '?'}${c.detail ? ' – ' + c.detail : ''} · ${c.pic || 'PIC?'} · ${fmt(c.target)}`; }),
           ...(belumCek(t).length ? ['Belum dicek: ' + belumCek(t).map(k => KAT[k]).join(', ')] : [])].join('\n') || 'Semua OK',
         progTxt(t) || '–'] })) },
@@ -1823,15 +1888,16 @@ const REPORTS = {
         x.capaian == null ? '' : pc(progKum(x)), progTxt(t), x.penyebab, x.catatan] }; }) },
   issue: { title: 'Follow Up Issue / Kendala', week: true,
     head: ['Kode', 'Task', 'Kategori', 'Issue', 'Detail', 'Target', 'Sisa hari', 'Status'],
-    rows: o => issueList(o.week).filter(x => prioOK(x.t)).sort((a, b) => byPrio(a.t, b.t)).map(x => ({ pic: picOf(x.c.pic || x.t.pic),
+    rows: o => issueList(o.week, o.week2).filter(x => prioOK(x.t)).sort((a, b) => byPrio(a.t, b.t)).map(x => ({ pic: picOf(x.c.pic || x.t.pic),
       cells: [x.t.kode + (x.t.prio ? '\n' + x.t.prio.toUpperCase() : ''), [x.t.uraian, x.t.lokasi].filter(Boolean).join(' · '), KAT[x.k], x.c.issue, x.c.detail, fmt(x.c.target), x.sisa ?? '–', x.st] })) },
 };
-function pdfOpts(r) { return { week: UI.week, tgl: UI.harianTgl || tgl(), pic: '' , r }; }
+function pdfOpts(r) { return { week: UI.week, week2: UI.view === 'komit' && kRange() ? UI.kTo : '', tgl: UI.harianTgl || tgl(), pic: '' , r }; }
 function pdfForm(r) {
   const R = REPORTS[r], o = pdfOpts(r);
   const pics = [...new Set(R.rows(o).filter(Boolean).map(x => x.pic))].sort();
   return `<h3>PDF ${esc(R.title)}</h3>
-  ${R.week ? `<label class="f">Minggu<select name="week">${opt('', o.week, 'Semua minggu')}${D.meta.weeks.map(x => opt(x.w, o.week, `W${x.w} · ${x.label}`)).join('')}</select></label>` : ''}
+  ${R.week ? `<div class="frow"><label class="f">Minggu${''}<select name="week">${opt('', o.week, 'Semua minggu')}${D.meta.weeks.map(x => opt(x.w, o.week, `W${x.w} · ${x.label}`)).join('')}</select></label>
+    <label class="f">s/d minggu<select name="week2">${opt('', o.week2, '— hanya minggu itu —')}${D.meta.weeks.map(x => opt(x.w, o.week2, `W${x.w} · ${x.label}`)).join('')}</select></label></div>` : ''}
   ${R.date ? `<label class="f">Tanggal<input type="date" name="tgl" value="${o.tgl}"></label>` : ''}
   <label class="f">PIC<select name="pic">${opt('', '', 'Semua PIC – 1 halaman per PIC')}${pics.map(p => opt(p, '')).join('')}</select></label>
   <p class="muted" style="font-size:13px">Daftar PIC mengikuti ${R.date ? 'tanggal' : 'minggu'} yang sedang dibuka. Di jendela cetak pilih <b>Simpan sebagai PDF</b>, lalu kirim ke PIC.${UI.fPrio ? ` Filter prioritas aktif: <b>${esc(FPRIO[UI.fPrio])}</b>.` : ''}${r === 'issue' ? ' Issue dikelompokkan per PIC kendala.' : ''}</p>
@@ -1843,7 +1909,7 @@ function printReport(r, o) {
   const groups = {};
   rows.forEach(x => (groups[x.pic] ||= []).push(x.cells));
   const wo = o.week === '' ? null : weekObj(o.week);
-  const per = R.date ? fmt(o.tgl) + ` (W${weekOf(o.tgl)})` : wo ? `W${wo.w} · ${fmt(wo.start)} – ${fmt(wo.end)}` : 'Semua minggu';
+  const per = R.date ? fmt(o.tgl) + ` (W${weekOf(o.tgl)})` : perLabel(o.week, o.week2);
   const cell = v => esc(v ?? '').replace(/\n/g, '<br>');
   $('#print').innerHTML = Object.keys(groups).sort().map(pic => `<section class="pg">
     <header><div><b>${esc(R.title)}</b><span>${esc(D.meta.project)}</span></div>
@@ -1854,7 +1920,7 @@ function printReport(r, o) {
     <footer><div>Dibuat oleh<br><br><br>( ${esc(D.sync.user || '..................')} )</div><div>Diterima PIC<br><br><br>( ${esc(pic)} )</div></footer>
   </section>`).join('');
   const judul = document.title;
-  document.title = [R.title.split(' ')[0], o.pic || 'Semua-PIC', R.date ? o.tgl : wo ? 'W' + wo.w : 'semua'].join('_').replace(/[\\/:*?"<>|\s]+/g, '-'); // nama file PDF
+  document.title = [R.title.split(' ')[0], o.pic || 'Semua-PIC', R.date ? o.tgl : wo ? 'W' + wo.w + (rangeOn(o.week, o.week2) ? '-W' + o.week2 : '') : 'semua'].join('_').replace(/[\\/:*?"<>|\s]+/g, '-'); // nama file PDF
   addEventListener('afterprint', () => { document.title = judul; $('#print').innerHTML = ''; }, { once: true });
   setTimeout(() => print(), 60); // beri waktu dialog tertutup
 }
@@ -2095,6 +2161,7 @@ document.addEventListener('click', e => {
     case 'drv-set': drvSet(); break;
     case 'll-set': llSet(); break;
     case 'll-load': llLoad(true); break;
+    case 'pdf-ll': openDlg(pdfLLForm(), fd => printLL({ f: fd.get('f') || '', dis: fd.get('dis') || '', q: String(fd.get('q') || '').trim(), grp: fd.get('grp'), pic: fd.has('pic') })); break;
     case 'll-f': UI.llF = el.dataset.v; render(); break;
     case 'll-dis': UI.llDis = el.dataset.v; render(); break;
     case 'dok-new': editDok(normDok({ scope: D.disiplin[0], status: 'Draft', rev: 0 }), true); break;
@@ -2109,7 +2176,7 @@ document.addEventListener('click', e => {
     case 'fprio': UI.fPrio = el.dataset.v; if (el.tagName === 'A') break; render(); break; // <a> → hashchange render
     case 'pdf': {
       const r = el.dataset.r;
-      openDlg(pdfForm(r), fd => printReport(r, { week: fd.has('week') ? fd.get('week') : UI.week, tgl: fd.get('tgl') || UI.harianTgl || tgl(), pic: fd.get('pic') || '' }));
+      openDlg(pdfForm(r), fd => printReport(r, { week: fd.has('week') ? fd.get('week') : UI.week, week2: fd.get('week2') || '', tgl: fd.get('tgl') || UI.harianTgl || tgl(), pic: fd.get('pic') || '' }));
       break;
     }
     case 'pdf-dok': openDlg(pdfDokForm(), fd => printDok({ f: fd.get('f') || '', jn: fd.get('jn') || '', sc: fd.get('sc') || '', pic: fd.get('pic') || '', q: String(fd.get('q') || '').trim(), grp: fd.get('grp') })); break;
@@ -2126,7 +2193,8 @@ document.addEventListener('click', e => {
     case 'tl-manual': { const w = $('#tl-w')?.value; if (w != null) UI.week = w; newTask($('#tl-pick')?.dataset.pek || undefined); break; } // isi dialog diganti form task biasa
     case 'tl-goto': UI.week = el.dataset.w; UI.wPilih = true; if (UI.view === 'komit') render(); break;
     case 'rantai': e.preventDefault(); rantaiDlg(task); break;
-    case 'kw': e.preventDefault(); UI.week = el.dataset.v; UI.wPilih = true; render(); break;
+    case 'kw': e.preventDefault(); UI.week = el.dataset.v; UI.kTo = ''; UI.kRgBuka = false; UI.wPilih = true; render(); break;
+    case 'k-rg': { if (UI.week === '') UI.week = String(weekOf(tgl())); UI.kRgBuka = true; if (!kRange()) { const n = +UI.week + 3; UI.kTo = String(Math.min(n, D.meta.weeks.at(-1).w)); if (!kRange()) UI.kTo = ''; } UI.wPilih = true; render(); break; }
     case 'lanjut': { const n = lanjutkan(task); if (n) { save(); render(); toast(`${task.kode} dilanjutkan ke W${n.minggu} sebagai ${n.kode} – sepakati di rapat`); } break; }
     case 'lanjut-semua': {
       const w = +el.dataset.w, L = D.tasks.filter(t => +t.minggu === w && perluLanjut(t));
@@ -2284,7 +2352,7 @@ document.addEventListener('input', e => {
   const s = document.querySelector(`[data-ui="${k}"]`); s.focus(); s.setSelectionRange(pos, pos);
 });
 document.addEventListener('toggle', e => { const d = e.target; if (d.matches?.('details.tl-jd')) UI.jdBuka[d.dataset.pek] = d.open; }, true);
-$('#f-week').addEventListener('change', e => { UI.week = e.target.value; UI.wPilih = true; render(); });
+$('#f-week').addEventListener('change', e => { UI.week = e.target.value; UI.kTo = ''; UI.kRgBuka = false; UI.wPilih = true; render(); });
 
 function route() {
   const v = location.hash.slice(1);
