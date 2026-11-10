@@ -352,3 +352,22 @@ html.ro button:disabled[data-act] { opacity: 1; cursor: default; }
 .r-ptr { display: inline-block; font-size: 12px; font-weight: 600; margin-top: 4px; }
 .tl-jd { margin-top: 8px; border-top: 1px dashed var(--line); padding-top: 6px; }
 .tl-jd > summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+/* PDF long lead */
+@media print {
+  #print .ll table { font-size: 7.5pt; }
+  #print .ll td:nth-child(n+5):nth-child(-n+9) { white-space: normal; }
+  #print .ll td.tg { white-space: nowrap; }
+  #print .ll td.nm { white-space: normal; min-width: 32mm; font-weight: 600; }
+  #print .ll td.c { text-align: center; }
+  #print .ll td.rm { min-width: 38mm; white-space: normal; }
+  #print .ll small { color: #555; font-weight: normal; }
+  #print .ll td.st { white-space: nowrap; font-weight: bold; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #print .ll td.st.bad { background: #f8d4d0 !important; }
+  #print .ll td.st.warn { background: #fdf0c8 !important; }
+  #print .ll td.st.ok { background: #dff3e3 !important; }
+  #print .ll td.st.info { background: #dce9f7 !important; }
+}
+/* Komitmen: rentang beberapa minggu */
+.k-rg select { width: auto; flex: 0 1 auto; }
+.k-wk { margin: 16px 0 6px; font-size: 15px; border-bottom: 2px solid var(--line); padding-bottom: 4px; }
+.k-wk small { font-weight: normal; font-size: 12px; margin-left: 6px; }
