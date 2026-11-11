@@ -600,7 +600,7 @@ function vJadwal() {
   const look = UI.jLook;
   const { wF, wT, list } = jadwalList(from, look, UI.jDis, UI.jSearch);
   return `
-  <div class="vh"><h2>Jadwal & Lookahead</h2><button class="btn sm" data-act="pdf-jadwal">PDF jadwal</button></div>
+  <div class="vh"><h2>Jadwal & Lookahead</h2><button class="btn sm" data-act="pdf-jadwal">PDF / Excel</button></div>
   <div class="bar">
     <input class="grow" type="search" placeholder="Cari pekerjaan / area…" value="${esc(UI.jSearch)}" data-ui="jSearch">
     <select data-ui="jDis">${opt('', UI.jDis, 'Semua disiplin')}${D.disiplin.map(d => opt(d, UI.jDis)).join('')}</select>
@@ -1134,7 +1134,7 @@ function vLog() {
       ${x.catatan ? `<div class="lg-t muted">Catatan: ${esc(x.catatan)}</div>` : ''}
     </div>`;
   }
-  return `<div class="vh"><h2>Log masalah harian</h2><button class="btn sm" data-act="pdf-log">Cetak PDF</button></div>
+  return `<div class="vh"><h2>Log masalah harian</h2><button class="btn sm" data-act="pdf-log">PDF / Excel</button></div>
   ${hTabs()}
   <div class="bar">
     <label class="muted" style="font-size:13px">Dari <input type="date" value="${o.from}" data-ui="lgFrom"></label>
@@ -1181,7 +1181,7 @@ function pdfLogForm() {
   <label class="f">Cari<input type="text" name="q" value="${esc(o.q)}" placeholder="task / masalah / tindakan"></label>
   <label class="f" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="all" value="1" ${o.all ? 'checked' : ''} style="width:auto;min-height:0"> Sertakan janji yang belum dilaporkan</label>
   <p class="muted" style="font-size:13px">Kertas A4 mendatar. Di jendela cetak pilih <b>Simpan sebagai PDF</b>.</p>
-  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Buat PDF</button></div>`;
+  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="xls" class="btn">Excel</button><button value="save" class="btn pri">Buat PDF</button></div>`;
 }
 function printLog(o) {
   if (o.to < o.from) [o.from, o.to] = [o.to, o.from];
@@ -1205,7 +1205,7 @@ function printLog(o) {
   const judul = document.title;
   document.title = ['Log_Masalah', o.from, o.to, o.pic || o.dis || ''].filter(Boolean).join('_').replace(/[\\/:*?"<>|\s]+/g, '-');
   addEventListener('afterprint', () => { document.title = judul; $('#print').innerHTML = ''; }, { once: true });
-  setTimeout(() => print(), 60);
+  selesaiCetak();
 }
 
 function ppcChart(dates) {
@@ -1532,7 +1532,7 @@ function pdfLLForm() {
   </div>
   <label class="f" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="pic" value="1" checked style="width:auto;min-height:0"> Sertakan kolom PIC / kontak vendor</label>
   <p class="muted" style="font-size:13px">Kertas A4 mendatar, urut dari yang paling mendesak. Di jendela cetak pilih <b>Simpan sebagai PDF</b>.</p>
-  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Buat PDF</button></div>`;
+  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="xls" class="btn">Excel</button><button value="save" class="btn pri">Buat PDF</button></div>`;
 }
 function printLL(o) {
   const L = llFilter(o);
@@ -1559,7 +1559,7 @@ function printLL(o) {
   const judul = document.title;
   document.title = ['Long_Lead', o.dis || 'Semua', o.f ? LL_F[o.f].replace(/\W+/g, '_') : '', todayISO()].filter(Boolean).join('_');
   addEventListener('afterprint', () => { document.title = judul; $('#print').innerHTML = ''; }, { once: true });
-  setTimeout(() => print(), 60);
+  selesaiCetak();
 }
 function vLL() {
   llAuto();
@@ -1585,7 +1585,7 @@ function vLL() {
   </div>
   <div class="prio-f">${Object.entries(LL_F).map(([k, l]) => `<button type="button" data-act="ll-f" data-v="${k}" class="${UI.llF === k ? 'on' : ''}">${l} <b>${nF(k)}</b></button>`).join('')}</div>
   <div class="prio-f kat-f"><button type="button" data-act="ll-dis" data-v="" class="${UI.llDis ? '' : 'on'}">Semua disiplin</button>${disL.map(d => `<button type="button" data-act="ll-dis" data-v="${esc(d)}" class="${UI.llDis === d ? 'on' : ''}">${esc(d)} <b>${all0.filter(o => llDisOf(o.x) === d).length}</b></button>`).join('')}</div>
-  <div class="bar"><input type="search" data-ui="llQ" value="${esc(UI.llQ)}" placeholder="Cari material / vendor / area / PIC" style="flex:1;min-width:160px"><button type="button" class="btn" data-act="pdf-ll"${llItems().length ? '' : ' disabled'}>Cetak PDF</button></div>
+  <div class="bar"><input type="search" data-ui="llQ" value="${esc(UI.llQ)}" placeholder="Cari material / vendor / area / PIC" style="flex:1;min-width:160px"><button type="button" class="btn" data-act="pdf-ll"${llItems().length ? '' : ' disabled'}>PDF / Excel</button></div>
   ${L.map(({ x, i }) => { const [cl, lb] = LL_ST[i.st], nm = x.nama.split('\n').map(s => s.trim()).filter(Boolean);
     return `<div class="item">
       <div class="hd"><div><span class="ttl">${esc(nm[0])}</span>${nm.length > 1 ? `<small class="muted" style="display:block">${esc(nm.slice(1).join(' · '))}</small>` : ''}
@@ -1726,7 +1726,7 @@ function vDok() {
   <div class="bar">${subL.length ? `<select data-ui="dokSub" style="width:auto">${opt('', sb, 'Semua sub-kategori')}${subL.map(d => opt(d, sb)).join('')}</select>` : ''}
     <select data-ui="dokScope" style="width:auto">${opt('', sc, 'Semua scope')}${scopeL.map(d => opt(d, sc)).join('')}</select>
     <input type="search" data-ui="dokQ" value="${esc(UI.dokQ)}" placeholder="Cari nomor / nama / PIC" style="flex:1;min-width:160px">
-    <button type="button" class="btn" data-act="pdf-dok">Cetak PDF</button></div>
+    <button type="button" class="btn" data-act="pdf-dok">PDF / Excel</button></div>
   ${L.length ? `<div class="card dok-t"><table class="tbl">
     <thead><tr><th>Dokumen</th><th class="w-l">PIC</th><th>Status</th><th class="n">Tanggal</th></tr></thead>
     <tbody>${(() => {
@@ -1861,7 +1861,7 @@ const dokLine = t => {
   return `<div class="meta" style="margin-top:6px"><span>Dokumen:</span>${ds.map(x => `<a href="#sd" data-act="goto-dok" data-id="${esc(x.id)}" class="chip ${x.status === 'Approved' ? 'ok' : lewatDok(x) ? 'bad' : 'warn'}" style="text-decoration:none">${esc(x.nomor || x.nama)} · ${esc(x.status)}</a>`).join('')}
     ${open.length && t.k.eng.st !== 'Pending' ? `<button class="btn sm" data-act="dok-kendala" data-kode="${esc(t.kode)}">⚠ ${open.length} belum approve → jadikan kendala Engineering</button>` : ''}</div>`;
 };
-const vh = (title, r) => `<div class="vh"><h2>${esc(title)}</h2><button class="btn sm" data-act="pdf" data-r="${r}">PDF per PIC</button></div>`;
+const vh = (title, r) => `<div class="vh"><h2>${esc(title)}</h2><button class="btn sm" data-act="pdf" data-r="${r}">PDF / Excel</button></div>`;
 const picOf = s => String(s || '').trim() || '(tanpa PIC)';
 const prioTxt = t => [t.prio ? t.prio.toUpperCase() : '', koordList(t).length ? '↔ ' + koordList(t).join(', ') : '', t.followup].filter(Boolean).join('\n');
 const progTxt = t => { if (!t) return ''; const p = prog(t.kode), r = rantai(t), a = t.bl && tlById(t.bl), sl = tlSlip(t);
@@ -1901,7 +1901,7 @@ function pdfForm(r) {
   ${R.date ? `<label class="f">Tanggal<input type="date" name="tgl" value="${o.tgl}"></label>` : ''}
   <label class="f">PIC<select name="pic">${opt('', '', 'Semua PIC – 1 halaman per PIC')}${pics.map(p => opt(p, '')).join('')}</select></label>
   <p class="muted" style="font-size:13px">Daftar PIC mengikuti ${R.date ? 'tanggal' : 'minggu'} yang sedang dibuka. Di jendela cetak pilih <b>Simpan sebagai PDF</b>, lalu kirim ke PIC.${UI.fPrio ? ` Filter prioritas aktif: <b>${esc(FPRIO[UI.fPrio])}</b>.` : ''}${r === 'issue' ? ' Issue dikelompokkan per PIC kendala.' : ''}</p>
-  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Buat PDF</button></div>`;
+  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="xls" class="btn">Excel</button><button value="save" class="btn pri">Buat PDF</button></div>`;
 }
 function printReport(r, o) {
   const R = REPORTS[r], rows = R.rows(o).filter(x => x && (!o.pic || x.pic === o.pic));
@@ -1922,7 +1922,7 @@ function printReport(r, o) {
   const judul = document.title;
   document.title = [R.title.split(' ')[0], o.pic || 'Semua-PIC', R.date ? o.tgl : wo ? 'W' + wo.w + (rangeOn(o.week, o.week2) ? '-W' + o.week2 : '') : 'semua'].join('_').replace(/[\\/:*?"<>|\s]+/g, '-'); // nama file PDF
   addEventListener('afterprint', () => { document.title = judul; $('#print').innerHTML = ''; }, { once: true });
-  setTimeout(() => print(), 60); // beri waktu dialog tertutup
+  selesaiCetak();
 }
 
 /* ---------- PDF Jadwal / Lookahead: 1 minggu atau beberapa minggu ke depan, bar per minggu, opsional task komitmen ---------- */
@@ -1944,7 +1944,7 @@ function pdfDokForm() {
     <label class="f">Susunan<select name="grp">${opt('kat', 'kat', '1 halaman per kategori')}${opt('satu', 'kat', 'Satu tabel')}</select></label>
   </div>
   <p class="muted" style="font-size:13px">Kertas A4 mendatar. Di jendela cetak pilih <b>Simpan sebagai PDF</b>.</p>
-  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Buat PDF</button></div>`;
+  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="xls" class="btn">Excel</button><button value="save" class="btn pri">Buat PDF</button></div>`;
 }
 function printDok(o) {
   const L = dokFilter({ ...o, sb: o.jn && o.jn === UI.dokJenis ? UI.dokSub : '' });
@@ -1967,7 +1967,7 @@ function printDok(o) {
   const judul = document.title;
   document.title = ['Tracking_Dokumen', o.jn || 'Semua', o.f ? DOK_FD[o.f].replace(/\W+/g, '_') : '', todayISO()].filter(Boolean).join('_');
   addEventListener('afterprint', () => { document.title = judul; $('#print').innerHTML = ''; }, { once: true });
-  setTimeout(() => print(), 60);
+  selesaiCetak();
 }
 function pdfJadwalForm() {
   const cw = weekOf(tgl()), from = UI.jFrom ?? cw, look = UI.jLook === 'all' ? '4' : UI.jLook;
@@ -1982,7 +1982,7 @@ function pdfJadwalForm() {
   </div>
   <label class="f" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="task" value="1" checked style="width:auto;min-height:0"> Sertakan task komitmen (kode · uraian · PIC) di bawah tiap pekerjaan</label>
   <p class="muted" style="font-size:13px">Kolom W… menandai minggu aktif tiap pekerjaan (maks. 8 minggu; "Semua jadwal" tanpa kolom minggu). Di jendela cetak pilih <b>Simpan sebagai PDF</b>.</p>
-  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Buat PDF</button></div>`;
+  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="xls" class="btn">Excel</button><button value="save" class="btn pri">Buat PDF</button></div>`;
 }
 function printJadwal(o) {
   const { wF, wT, list } = jadwalList(o.from, o.look, o.dis);
@@ -2013,7 +2013,37 @@ function printJadwal(o) {
   const judul = document.title;
   document.title = ['Jadwal', o.look === 'all' ? 'semua' : `W${wF.w}${wT.w !== wF.w ? '-W' + wT.w : ''}`, o.dis || 'Semua'].join('_');
   addEventListener('afterprint', () => { document.title = judul; $('#print').innerHTML = ''; }, { once: true });
-  setTimeout(() => print(), 60);
+  selesaiCetak();
+}
+
+/* ---------- export: laporan yang disusun di #print dicetak (PDF) atau diubah jadi .xlsx (tombol Excel di dialog) ---------- */
+let XLS = false;
+function selesaiCetak() {
+  if (!XLS) { setTimeout(() => print(), 60); return; } // beri waktu dialog tertutup
+  try { xlsDariPrint(document.title); } finally { dispatchEvent(new Event('afterprint')); } // afterprint = kembalikan judul & kosongkan #print
+}
+const xNum = v => /^-?\d{1,12}(\.\d+)?$/.test(v) ? +v : v;
+function xlsDariPrint(nama) {
+  const teks = el => { const c = el.cloneNode(true); c.querySelectorAll('br').forEach(b => b.replaceWith('\n'));
+    return c.textContent.replace(/[ \t\r]*\n[ \t\r]*/g, '\n').replace(/[ \t]{2,}/g, ' ').trim(); };
+  const sheets = [...$('#print').querySelectorAll('section')].map((sec, i) => {
+    const hd = sec.querySelector('header'), meta = [...(hd ? hd.querySelectorAll('.pr-meta span') : [])].map(teks);
+    const nm = (meta.find(m => /^(PIC|Disiplin|Kategori):/i.test(m)) || '').replace(/^[^:]+:\s*/, '') || 'Sheet' + (i + 1);
+    const rows = [{ s: 'title', c: [[hd?.querySelector('b')?.textContent, hd?.querySelector('div > span')?.textContent].filter(Boolean).join(' · ')] }, { s: 'meta', c: [meta.join(' · ')] }];
+    let freeze = 0;
+    sec.querySelectorAll('table tr').forEach(tr => {
+      const tds = [...tr.children];
+      if (tr.closest('thead')) { rows.push({ s: 'head', c: tds.map(teks) }); freeze = freeze || rows.length; return; }
+      const grp = (tds.length === 1 && tds[0].colSpan > 1) || tr.classList.contains('pj') || tr.classList.contains('sb');
+      rows.push({ s: grp ? 'grp' : 'cell', c: tds.map(td => td.classList.contains('g') ? (td.classList.contains('on') ? '■' : '') : xNum(teks(td))) });
+    });
+    sec.querySelectorAll('.pr-n').forEach(x => rows.push({ s: 'note', c: [teks(x)] }));
+    return { name: nm, rows, freeze };
+  });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(xlsxBlob(sheets)); a.download = (nama || 'LPS').replace(/[\\/:*?"<>|]+/g, '-') + '.xlsx';
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  toast(`Excel dibuat: ${sheets.length} sheet`);
 }
 
 /* ---------- dialog ---------- */
@@ -2026,7 +2056,7 @@ function openDlg(html, onSave) {
 }
 $('#dlg').addEventListener('close', () => {
   const dlg = $('#dlg');
-  if (dlg.returnValue === 'save' && dlgSubmit) dlgSubmit(new FormData($('#dlg-form')));
+  if ((dlg.returnValue === 'save' || dlg.returnValue === 'xls') && dlgSubmit) { XLS = dlg.returnValue === 'xls'; try { dlgSubmit(new FormData($('#dlg-form'))); } finally { XLS = false; } }
   dlg.returnValue = ''; dlgSubmit = null;
 });
 
