@@ -2,7 +2,7 @@
 bisa memuatnya setelah kode akses diisi.
 
 Pemakaian (setelah export_excel.py):
-    python push_master.py <URL_WEB_APP_/exec> <KODE_AKSES> [seed.json] [--nama "Admin"] [--dok-link "LINK_GOOGLE_SHEET_DOKUMEN"] [--ll-link "LINK_LOG_LONG_LEAD"]
+    python push_master.py <URL_WEB_APP_/exec> <KODE_AKSES> [seed.json] [--nama "Admin"] [--dok-link "LINK_GOOGLE_SHEET_DOKUMEN"] [--ll-link "LINK_LOG_LONG_LEAD"] [--mp-link "LINK_SHEET_MANPOWER_HARIAN"]
 
 Yang dikirim:
   - master  : meta (minggu, kurva-S), pekerjaan, area, daftar issue, penyebab, timeline (export_timeline.py)  → tab Master (ditimpa)
@@ -57,6 +57,11 @@ def main():
         i = args.index("--ll-link")
         ll_link = args[i + 1].strip()
         del args[i:i + 2]
+    mp_link = None
+    if "--mp-link" in args:  # link Google Sheet laporan harian (sheet "Manpower") untuk aktual manpower; kosong "" = hapus
+        i = args.index("--mp-link")
+        mp_link = args[i + 1].strip()
+        del args[i:i + 2]
     if len(args) < 2:
         sys.exit(__doc__)
     m = re.search(r"https?://\S+", args[0])  # toleran: spasi/teks lain ikut tertempel di argumen URL
@@ -74,7 +79,9 @@ def main():
     body["master"]["dokSrc"] = old_link if dok_link is None else dok_link
     old_ll = (team.get("master") or {}).get("llSrc") or ""
     body["master"]["llSrc"] = old_ll if ll_link is None else ll_link
-    if body["master"]["dokSrc"] != old_link or body["master"]["llSrc"] != old_ll:  # versi master = exportedAt; ganti agar perangkat tim menarik master baru
+    old_mp = (team.get("master") or {}).get("mpSrc") or ""
+    body["master"]["mpSrc"] = old_mp if mp_link is None else mp_link
+    if body["master"]["dokSrc"] != old_link or body["master"]["llSrc"] != old_ll or body["master"]["mpSrc"] != old_mp:  # versi master = exportedAt; ganti agar perangkat tim menarik master baru
         body["master"]["exportedAt"] = now
     known_dok = {str(r["id"]) for r in team.get("dokumen", [])}
     body["dokumen"] = [{**r, "_u": now, "_by": nama} for r in seed.get("dokumen", []) if str(r["id"]) not in known_dok]
@@ -118,6 +125,8 @@ def main():
         print("Link log dokumen Drive: " + ("diperbarui" if dok_link is not None else "tetap") + " (aplikasi membacanya langsung, hanya baca).")
     if body["master"]["llSrc"]:
         print("Link log long lead Drive: " + ("diperbarui" if ll_link is not None else "tetap") + " (aplikasi membacanya langsung, hanya baca).")
+    if body["master"]["mpSrc"]:
+        print("Link manpower harian Drive: " + ("diperbarui" if mp_link is not None else "tetap") + " (aplikasi membacanya langsung, hanya baca).")
     if res.get("skipped"):
         print(f"Catatan: {res['skipped']} record dilewati karena versi di Sheet lebih baru.")
 
