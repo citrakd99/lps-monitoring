@@ -219,7 +219,7 @@ async function fetchSeed() {
   if (!r.ok) throw new Error('seed.json tidak ditemukan');
   return r.json();
 }
-const MASTER_F = ['meta', 'pekerjaan', 'areas', 'areaMap', 'issues', 'penyebab', 'disiplin', 'source', 'exportedAt', 'mpPlan', 'dokSrc', 'llSrc', 'mpSrc', 'timeline'];
+const MASTER_F = ['meta', 'pekerjaan', 'areas', 'areaMap', 'issues', 'penyebab', 'disiplin', 'source', 'exportedAt', 'mpPlan', 'dokSrc', 'llSrc', 'mpSrc', 'mpPSrc', 'timeline'];
 const blank = () => ({ meta: { project: '', tglUpdate: null, targetPPC: 0.8, weeks: [], scurve: [] }, pekerjaan: [], areas: [], areaMap: {},
   issues: Object.fromEntries(KK.map(k => [k, []])), penyebab: [], disiplin: ['CSA', 'MEP', 'ARS', 'PRELIM'], tasks: [], daily: [], progress: [], mpPlan: [], manpower: [], dokumen: [], timeline: [], tlEdit: [], jdEdit: [] });
 const hasMaster = () => D.meta.weeks.length > 0;
@@ -496,7 +496,7 @@ function vDash() {
     <div class="kpi ${!A ? '' : A.aktual >= (planA?.cum ?? 0) ? 'ok' : 'bad'}"><b>${A ? pc(A.aktual) : '–'}</b><span>${A ? `Actual s/d W${A.w} · rencana ${pc(planA?.cum)} · deviasi ${dev(A.aktual - (planA?.cum ?? 0))}` : 'Actual progress belum diisi'}</span></div>
     <div class="kpi ${pd.ppc == null ? '' : pd.ppc >= tgt ? 'ok' : 'bad'}"><b>${pct(pd.ppc)}</b><span>PPC hari ini · ${pd.ya}/${pd.n} janji</span></div>
     <div class="kpi ${fu.some(t => t.prio === 'Urgent') ? 'bad' : fu.length ? 'warn' : ''}"><b>${fu.length}</b><span>Perlu follow up (urgent / tinggi / koordinasi)</span></div>
-    ${D.mpPlan.length || drvId(mpSrc()) ? (() => { mpAuto(); const a = mpAktD(tgl()) || mpRows().filter(r => r.tgl <= tgl()).at(-1), p = mpPlanD(a ? a.tgl : tgl()).all; return `<a class="kpi ${a ? mpCls(a.normal, p) : ''}" href="#sd" data-act="sd-tab" data-v="mp"><b>${a ? a.normal : '–'}<small class="muted" style="font-size:13px"> / ${p}</small></b><span>Manpower ${a ? (a.tgl === tgl() ? 'hari ini' : fmt(a.tgl)) : 'hari ini'} / rencana harian →</span></a>`; })() : ''}
+    ${mpItems().length || drvId(mpSrc()) ? (() => { mpAuto(); const a = mpAktD(tgl()) || mpRows().filter(r => r.tgl <= tgl()).at(-1), p = mpPlanD(a ? a.tgl : tgl()).all; return `<a class="kpi ${a ? mpCls(a.normal, p) : ''}" href="#sd" data-act="sd-tab" data-v="mp"><b>${a ? a.normal : '–'}<small class="muted" style="font-size:13px"> / ${p}</small></b><span>Manpower ${a ? (a.tgl === tgl() ? 'hari ini' : fmt(a.tgl)) : 'hari ini'} / rencana harian →</span></a>`; })() : ''}
     ${TL().length ? (() => { const w = tlWeek(), k = tlKosong(w).length; return `<a class="kpi ${k ? 'warn' : 'ok'}" href="#komit" data-act="tl-goto" data-w="${w}"><b>${k}<small class="muted" style="font-size:13px"> / ${tlAkt(w).length}</small></b><span>Aktivitas timeline W${w} belum ada task komitmen →</span></a>`; })() : ''}
     ${(() => { const A = allDok(); return A.length ? `<div class="kpi ${A.some(lewatDok) ? 'bad' : 'warn'}"><b>${A.filter(x => x.status !== 'Approved').length}</b><span>Dokumen belum approve · ${A.filter(lewatDok).length} lewat target</span></div>` : ''; })()}
   </div>
@@ -1336,7 +1336,54 @@ let mpBusy = false;
 const mpSrc = () => D.settings.mpSrc || D.mpSrc || '';
 const mpRows = () => (MPS.src && MPS.src === drvId(mpSrc()) && MPS.rows) || [];
 const mpAktD = d => mpRows().find(r => r.tgl === d) || null;
-const mpPlanG = (w, staf) => D.mpPlan.filter(i => (i.grup === 'STAF') === staf).reduce((s, i) => s + mpPlanW(i, w), 0);
+/* rencana: sheet "MP-Master" di Google Sheet (dibaca langsung, hanya baca); cadangan = mpPlan dari Excel (export_excel.py) */
+const MPP_KEY = lsKunci('lps-mpp', 'mpp');
+let MPP = (() => { try { return JSON.parse(localStorage.getItem(MPP_KEY)) || {}; } catch { return {}; } })();
+const mpPSrc = () => D.settings.mpPSrc || D.mpPSrc || '';
+const mpItems = () => (MPP.src && MPP.src === drvId(mpPSrc()) && MPP.items?.length ? MPP.items : D.mpPlan) || [];
+const mpDariSheet = () => !!(MPP.src && MPP.src === drvId(mpPSrc()) && MPP.items?.length);
+/* MP-Master: No | Man Power Activity | Durasi | MP | W0 | W1 | …  (kolom E = W0; judul minggu bisa #ERROR!, jadi pakai posisi bila tidak terbaca)
+   Grup: "Site Management" = STAF, "CSA", "MEP"; sub: GD 4 / GD 2 / External / …; berhenti di blok rekap STAF/CSA/MEP/TOTAL di bawah.
+   Kode A / A.1 bisa hilang di CSV gviz (kolom angka) → grup dikenali dari namanya. */
+function mpMasterSheet(rows) {
+  const hi = rows.findIndex(r => r.some(c => /man ?power activity/i.test(c)));
+  if (hi < 0) return [];
+  const ai = rows[hi].findIndex(c => /man ?power activity/i.test(c)), w0 = ai + 3; // No | Activity | Durasi | MP | W0…
+  const wk = rows.slice(0, hi + 2).map(r => r.map(c => (String(c).match(/^\s*W\s*(\d+)\s*$/i) || [])[1])).find(r => r.filter(Boolean).length > 3);
+  const weekOfCol = c => wk && wk[c] != null ? +wk[c] : c - w0;
+  const slug = t => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const out = []; let grup = '', sub = '', mulai = false;
+  for (const r of rows.slice(hi + 1)) {
+    const a = String(r[ai - 1] ?? '').trim(), b = String(r[ai] ?? '').replace(/\s+/g, ' ').trim();
+    if (!b) continue;
+    const plan = {};
+    for (let c = w0; c < r.length; c++) { const v = parseFloat(String(r[c]).replace(',', '.')), w = weekOfCol(c); if (v > 0 && w >= 0) plan[w] = Math.round(v); }
+    if (mulai && /^(STAF|TOTAL)$/i.test(b) && !/^\d/.test(a)) break; // blok rekap
+    const nomor = /^\d+$/.test(a);
+    if (!nomor && /manag/i.test(b)) { grup = 'STAF'; sub = ''; mulai = true; continue; }
+    if (!nomor && (/^[A-Z]$/.test(a) || /^(CSA|MEP|ARS|STAF)$/i.test(b))) { grup = b.toUpperCase(); sub = ''; mulai = true; continue; }
+    if (!nomor) { // sub-kelompok (A.1 GD 4 …); yang berisi rencana dihitung sebagai aktivitas
+      sub = b;
+      if (Object.keys(plan).length) out.push({ id: slug(`${grup} ${b}`), grup, sub: '', nama: b, durasi: +r[ai + 1] || 0, mp: +r[ai + 2] || 0, plan });
+      continue;
+    }
+    out.push({ id: slug(`${grup} ${sub} ${b}`), grup, sub, nama: b, durasi: +r[ai + 1] || 0, mp: +r[ai + 2] || 0, plan });
+  }
+  return out;
+}
+async function mpPLoad() {
+  const id = drvId(mpPSrc()); if (!id) return;
+  const base = `https://docs.google.com/spreadsheets/d/${id}/`;
+  try {
+    const sh = await drvTabs(base), t = sh.find(([n]) => /^\s*mp[\s-]*master\s*$/i.test(n)) || sh.find(([n]) => /master/i.test(n)) || sh[0];
+    const items = mpMasterSheet(await drvCsv(base, t[1], t[0]));
+    MPP = { src: id, at: new Date().toISOString(), items, link: base + 'edit#gid=' + t[1], err: items.length ? '' : 'Kolom "Man Power Activity" tidak ditemukan di sheet MP-Master.' };
+  } catch (e) {
+    MPP = { src: id, items: MPP.src === id ? MPP.items : [], link: MPP.link, at: new Date().toISOString(), err: /fetch|network/i.test(e.message) ? 'Tidak bisa membaca MP-Master di Drive (offline, atau link belum dibagikan)' : e.message };
+  }
+  try { localStorage.setItem(MPP_KEY, JSON.stringify(MPP)); } catch { /* penyimpanan penuh */ }
+}
+const mpPlanG = (w, staf) => mpItems().filter(i => (i.grup === 'STAF') === staf).reduce((s, i) => s + mpPlanW(i, w), 0);
 const mpPlanD = d => { const w = weekOf(d), st = w == null ? 0 : mpPlanG(w, true), pk = w == null ? 0 : mpPlanG(w, false); return { staf: st, pek: pk, all: st + pk }; };
 const mpHari = d => mpAktD(d)?.normal ?? null;
 /* per minggu: rencana (orang/hari) vs rata-rata aktual harian dari hari yang ada laporan */
@@ -1360,9 +1407,11 @@ function mpSheet(rows) {
   return [...by.values()].sort((a, b) => a.tgl.localeCompare(b.tgl)); // tanggal yang diinput ulang → baris terakhir yang dipakai
 }
 async function mpLoad(manual) {
-  const id = drvId(mpSrc()); if (!id || mpBusy) return;
+  const id = drvId(mpSrc()); if ((!id && !drvId(mpPSrc())) || mpBusy) return;
   mpBusy = true; if (UI.view === 'sd' || UI.view === 'dash') render();
+  const pP = mpPLoad();
   const base = `https://docs.google.com/spreadsheets/d/${id}/`;
+  if (!id) { await pP; mpBusy = false; render(); if (manual) toast(MPP.err || `Rencana MP-Master: ${mpItems().length} aktivitas`); return; }
   try {
     const sh = await drvTabs(base), t = sh.find(([n]) => /^\s*man ?power\s*$/i.test(n)) || sh.find(([n]) => /man ?power/i.test(n));
     if (!t) throw new Error('Sheet "Manpower" tidak ada di file ini.');
@@ -1371,21 +1420,25 @@ async function mpLoad(manual) {
   } catch (e) {
     MPS = { src: id, rows: MPS.src === id ? MPS.rows : [], link: MPS.link, at: new Date().toISOString(), err: /fetch|network/i.test(e.message) ? 'Tidak bisa membaca Drive (offline, atau link belum dibagikan "Siapa saja yang memiliki link")' : e.message };
   }
+  await pP;
   mpBusy = false;
   try { localStorage.setItem(MP_KEY, JSON.stringify(MPS)); } catch { /* penyimpanan penuh */ }
   render();
-  if (manual) toast(MPS.err || `${MPS.rows.length} hari data manpower dibaca dari Drive`);
+  if (manual) toast(MPS.err || MPP.err || `${MPS.rows.length} hari aktual · rencana ${mpItems().length} aktivitas${mpDariSheet() ? ' (MP-Master Drive)' : ''}`);
 }
-const mpAuto = () => { const id = drvId(mpSrc()); if (id && !mpBusy && (!MPS.at || MPS.src !== id || Date.now() - new Date(MPS.at) > 6e5)) setTimeout(() => mpLoad(false)); };
+const mpAuto = () => { const id = drvId(mpSrc()), ip = drvId(mpPSrc()); if (mpBusy || (!id && !ip)) return;
+  const basi = (o, x) => x && (!o.at || o.src !== x || Date.now() - new Date(o.at) > 6e5);
+  if (basi(MPS, id) || basi(MPP, ip)) setTimeout(() => mpLoad(false)); };
 function mpSet() {
-  openDlg(`<h3>Link data manpower harian (Google Drive)</h3>
-    <label class="f">Link Google Sheet<input type="text" name="src" inputmode="url" value="${esc(D.settings.mpSrc || '')}" placeholder="${D.mpSrc ? 'Dari Sheet tim (biarkan kosong)' : 'https://docs.google.com/spreadsheets/d/…'}"></label>
+  openDlg(`<h3>Link data manpower (Google Drive)</h3>
+    <label class="f">Rencana – Google Sheet <b>MP-Master</b><input type="text" name="psrc" inputmode="url" value="${esc(D.settings.mpPSrc || '')}" placeholder="${D.mpPSrc ? 'Dari Sheet tim (biarkan kosong)' : 'https://docs.google.com/spreadsheets/d/…'}"></label>
+    <label class="f">Aktual – Google Sheet laporan harian (sheet <b>Manpower</b>)<input type="text" name="src" inputmode="url" value="${esc(D.settings.mpSrc || '')}" placeholder="${D.mpSrc ? 'Dari Sheet tim (biarkan kosong)' : 'https://docs.google.com/spreadsheets/d/…'}"></label>
     <p class="muted" style="font-size:13px">Aplikasi membaca sheet <b>Manpower</b> (kolom date, normal, lembur, staff_normal, pekerja_normal, …) dan tidak menulis apa pun ke Drive. Akses link: "Siapa saja yang memiliki link" (Pelihat).
-    ${D.mpSrc ? '<br>Link tim sudah diatur admin (push_master.py --mp-link). Isi di sini hanya bila ingin memakai link lain di perangkat ini.' : '<br>Agar berlaku untuk semua anggota tim, admin menjalankan push_master.py dengan --mp-link.'}</p>
+    <br>Agar berlaku untuk semua anggota tim, admin menjalankan push_master.py dengan <b>--mpplan-link</b> (rencana) dan <b>--mp-link</b> (aktual); isi di sini hanya untuk perangkat ini.</p>
     <div class="dlg-act"><span class="sp"></span><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Simpan</button></div>`, fd => {
-    const v = String(fd.get('src') || '').trim();
-    if (v && !drvId(v)) { toast('Link tidak dikenali – salin link dari tombol Bagikan'); return; }
-    D.settings.mpSrc = v; persist(); MPS = {}; render(); mpLoad(true);
+    const v = String(fd.get('src') || '').trim(), vp = String(fd.get('psrc') || '').trim();
+    if ((v && !drvId(v)) || (vp && !drvId(vp))) { toast('Link tidak dikenali – salin link dari tombol Bagikan'); return; }
+    D.settings.mpSrc = v; D.settings.mpPSrc = vp; persist(); MPS = {}; MPP = {}; render(); mpLoad(true);
   });
 }
 // dokumen Drive: target = rencana SUBMIT (lewat bila belum submit); dokumen manual: target = rencana APPROVE
@@ -1678,12 +1731,13 @@ const mpCls = (a, p) => a == null || !p ? '' : a >= p ? 'ok' : a >= p * .8 ? 'wa
 function vMp() {
   mpAuto();
   const id = drvId(mpSrc());
+  const planInfo = `<p class="muted" style="margin:6px 0 0;font-size:13px">Rencana: ${mpDariSheet() ? `MP-Master Google Sheet · ${mpItems().length} aktivitas${MPP.link ? ` · <a href="${esc(MPP.link)}" target="_blank" rel="noopener">buka</a>` : ''}` : mpItems().length ? 'MP-Master dari Excel (cadangan) – atur link Google Sheet MP-Master lewat tombol Link' : '<b>belum ada</b> – atur link Google Sheet MP-Master lewat tombol Link'}${MPP.err && MPP.src === drvId(mpPSrc()) ? ` · <span style="color:var(--bad)">${esc(MPP.err)}</span>` : ''}</p>`;
   const srcCard = id ? `<div class="card" style="padding:10px 14px"><div class="bar" style="margin:0">
       <span class="muted" style="font-size:13px">Aktual dari laporan harian Drive (hanya baca) · ${mpBusy ? 'membaca…' : MPS.at && MPS.src === id ? `${mpRows().length} hari · dibaca ${new Date(MPS.at).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : 'belum dibaca'}</span>
       <span style="flex:1"></span><button class="btn sm" data-act="mp-load" ${mpBusy ? 'disabled' : ''}>Muat ulang</button><button class="btn sm" data-act="mp-set">Link</button>${MPS.link && MPS.src === id ? `<a class="btn sm" href="${esc(MPS.link)}" target="_blank" rel="noopener">Buka sheet</a>` : ''}</div>
-      ${MPS.err && MPS.src === id ? `<p class="muted" style="color:var(--bad);margin:6px 0 0;font-size:13px">${esc(MPS.err)}</p>` : ''}</div>`
-    : `<div class="card"><b>Ambil aktual manpower dari laporan harian (Google Drive)</b><p class="muted" style="font-size:13px">Tempel link Google Sheet yang berisi sheet <b>Manpower</b> (akses link: "Siapa saja yang memiliki link" – Pelihat). Aktual dibandingkan dengan rencana harian MP-Master.</p><button class="btn pri" data-act="mp-set">Atur link manpower</button></div>`;
-  const noPlan = D.mpPlan.length ? '' : '<p class="muted" style="font-size:13px">Rencana MP-Master belum ada (Man Power Tracking.xlsx → export_excel.py → push_master.py); yang tampil hanya aktual.</p>';
+      ${MPS.err && MPS.src === id ? `<p class="muted" style="color:var(--bad);margin:6px 0 0;font-size:13px">${esc(MPS.err)}</p>` : ''}${planInfo}</div>`
+    : `<div class="card"><b>Ambil aktual manpower dari laporan harian (Google Drive)</b>${planInfo}<p class="muted" style="font-size:13px">Tempel link Google Sheet yang berisi sheet <b>Manpower</b> (akses link: "Siapa saja yang memiliki link" – Pelihat). Aktual dibandingkan dengan rencana harian MP-Master.</p><button class="btn pri" data-act="mp-set">Atur link manpower</button></div>`;
+  const noPlan = mpItems().length ? '' : '<p class="muted" style="font-size:13px">Rencana MP-Master belum ada – atur link Google Sheet MP-Master lewat tombol <b>Link</b>; yang tampil hanya aktual.</p>';
   const d = UI.mpTgl || tgl(), w = weekOf(d), P = mpPlanD(d), A = mpAktD(d), cw = weekOf(tgl());
   const det = (o, l) => { const e = Object.entries(o || {}); return e.length ? `<div><h4 style="margin:6px 0 4px">${l}</h4>${e.map(([k, [n, lb]]) => `<div class="mp-row" style="grid-template-columns:1fr 4em 4em"><span>${esc(k)}</span><b class="n">${n}</b><small class="muted n">${lb ? '+' + lb + ' lembur' : ''}</small></div>`).join('')}</div>` : ''; };
   // jendela grafik & tabel: 4 minggu ke belakang s/d minggu tanggal terpilih
