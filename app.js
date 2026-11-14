@@ -20,7 +20,7 @@ function lsKunci(baru, akhir) {
 }
 const KEY = RO ? lsKunci('lps-spv', 'spv') : lsKunci('lps-v1', 'v1');
 // aksi yang boleh di mode SPV: navigasi, filter, detail, sinkron (tarik)
-const RO_OK = new Set(['settings', 'sync-now', 'sync-off', 'sd-tab', 'mp-day', 'mp-all', 'dok-f', 'drv-load', 'dok-kat', 'dok-grp', 'dok-info',
+const RO_OK = new Set(['settings', 'sync-now', 'sync-off', 'sd-tab', 'mp-day', 'mp-all', 'mp-load', 'dok-f', 'drv-load', 'dok-kat', 'dok-grp', 'dok-info',
   'goto-dok', 'fprio', 'day', 'goto-ready', 'goto-komit', 'tl-goto', 'hmode', 'h-tab', 'log-goto', 'log-all', 'log-buka', 'kw', 'rantai', 'r-tgl', 'r-all']);
 const RO_TAMPIL = new Set(['kst', 'sepakat', 'waste']); // tombol status: tetap terlihat (menunjukkan status) tapi nonaktif
 function roLock(root) {
@@ -219,7 +219,7 @@ async function fetchSeed() {
   if (!r.ok) throw new Error('seed.json tidak ditemukan');
   return r.json();
 }
-const MASTER_F = ['meta', 'pekerjaan', 'areas', 'areaMap', 'issues', 'penyebab', 'disiplin', 'source', 'exportedAt', 'mpPlan', 'dokSrc', 'llSrc', 'timeline'];
+const MASTER_F = ['meta', 'pekerjaan', 'areas', 'areaMap', 'issues', 'penyebab', 'disiplin', 'source', 'exportedAt', 'mpPlan', 'dokSrc', 'llSrc', 'mpSrc', 'timeline'];
 const blank = () => ({ meta: { project: '', tglUpdate: null, targetPPC: 0.8, weeks: [], scurve: [] }, pekerjaan: [], areas: [], areaMap: {},
   issues: Object.fromEntries(KK.map(k => [k, []])), penyebab: [], disiplin: ['CSA', 'MEP', 'ARS', 'PRELIM'], tasks: [], daily: [], progress: [], mpPlan: [], manpower: [], dokumen: [], timeline: [], tlEdit: [], jdEdit: [] });
 const hasMaster = () => D.meta.weeks.length > 0;
@@ -496,7 +496,7 @@ function vDash() {
     <div class="kpi ${!A ? '' : A.aktual >= (planA?.cum ?? 0) ? 'ok' : 'bad'}"><b>${A ? pc(A.aktual) : '–'}</b><span>${A ? `Actual s/d W${A.w} · rencana ${pc(planA?.cum)} · deviasi ${dev(A.aktual - (planA?.cum ?? 0))}` : 'Actual progress belum diisi'}</span></div>
     <div class="kpi ${pd.ppc == null ? '' : pd.ppc >= tgt ? 'ok' : 'bad'}"><b>${pct(pd.ppc)}</b><span>PPC hari ini · ${pd.ya}/${pd.n} janji</span></div>
     <div class="kpi ${fu.some(t => t.prio === 'Urgent') ? 'bad' : fu.length ? 'warn' : ''}"><b>${fu.length}</b><span>Perlu follow up (urgent / tinggi / koordinasi)</span></div>
-    ${D.mpPlan.length ? (() => { const W = mpWeek(cw), a = mpHari(tgl()), ada = D.mpPlan.some(i => mpAkt(tgl(), i.id) != null); return `<div class="kpi ${!ada ? '' : a >= W.plan ? 'ok' : 'bad'}"><b>${ada ? a : '–'}<small class="muted" style="font-size:13px"> / ${W.plan}</small></b><span>Manpower hari ini / rencana W${cw}</span></div>`; })() : ''}
+    ${D.mpPlan.length || drvId(mpSrc()) ? (() => { mpAuto(); const a = mpAktD(tgl()) || mpRows().filter(r => r.tgl <= tgl()).at(-1), p = mpPlanD(a ? a.tgl : tgl()).all; return `<a class="kpi ${a ? mpCls(a.normal, p) : ''}" href="#sd" data-act="sd-tab" data-v="mp"><b>${a ? a.normal : '–'}<small class="muted" style="font-size:13px"> / ${p}</small></b><span>Manpower ${a ? (a.tgl === tgl() ? 'hari ini' : fmt(a.tgl)) : 'hari ini'} / rencana harian →</span></a>`; })() : ''}
     ${TL().length ? (() => { const w = tlWeek(), k = tlKosong(w).length; return `<a class="kpi ${k ? 'warn' : 'ok'}" href="#komit" data-act="tl-goto" data-w="${w}"><b>${k}<small class="muted" style="font-size:13px"> / ${tlAkt(w).length}</small></b><span>Aktivitas timeline W${w} belum ada task komitmen →</span></a>`; })() : ''}
     ${(() => { const A = allDok(); return A.length ? `<div class="kpi ${A.some(lewatDok) ? 'bad' : 'warn'}"><b>${A.filter(x => x.status !== 'Approved').length}</b><span>Dokumen belum approve · ${A.filter(lewatDok).length} lewat target</span></div>` : ''; })()}
   </div>
@@ -1323,18 +1323,70 @@ function normDok(x) {
   ['target', 'tglSubmit', 'tglApprove'].forEach(f => { x[f] = x[f] || null; });
   return x;
 }
-const mpId = (d, item) => `m${d}_${item}`; // 1 record per aktivitas per tanggal (konflik antar HP: yang terakhir menang)
+const mpId = (d, item) => `m${d}_${item}`; // (model lama: input aktual per aktivitas di aplikasi – tidak dipakai lagi)
 const mpAkt = (d, item) => D.manpower.find(x => x.id === mpId(d, item))?.aktual ?? null;
 const mpPlanW = (it, w) => +(it.plan?.[w] || 0);
-const mpHari = d => D.mpPlan.reduce((s, it) => s + (mpAkt(d, it.id) || 0), 0);
-/* rencana mingguan (MP-Master) vs aktual = rata-rata harian dari hari yang ada input */
+/* MANPOWER: rencana harian = MP-Master (orang per hari, berlaku untuk tiap hari di minggu tsb);
+   aktual = sheet "Manpower" laporan harian di Google Drive (hanya baca): date, normal, lembur, updated_by, updated_at,
+   staff_normal, staff_lembur, pekerja_normal, pekerja_lembur, detail (JSON per jabatan [normal, lembur]).
+   Link disimpan di master tim (push_master.py --mp-link) atau per perangkat; tidak ada di kode publik. */
+const MP_KEY = lsKunci('lps-mpa', 'mpa');
+let MPS = (() => { try { return JSON.parse(localStorage.getItem(MP_KEY)) || {}; } catch { return {}; } })();
+let mpBusy = false;
+const mpSrc = () => D.settings.mpSrc || D.mpSrc || '';
+const mpRows = () => (MPS.src && MPS.src === drvId(mpSrc()) && MPS.rows) || [];
+const mpAktD = d => mpRows().find(r => r.tgl === d) || null;
+const mpPlanG = (w, staf) => D.mpPlan.filter(i => (i.grup === 'STAF') === staf).reduce((s, i) => s + mpPlanW(i, w), 0);
+const mpPlanD = d => { const w = weekOf(d), st = w == null ? 0 : mpPlanG(w, true), pk = w == null ? 0 : mpPlanG(w, false); return { staf: st, pek: pk, all: st + pk }; };
+const mpHari = d => mpAktD(d)?.normal ?? null;
+/* per minggu: rencana (orang/hari) vs rata-rata aktual harian dari hari yang ada laporan */
 function mpWeek(w) {
-  const rows = D.manpower.filter(x => x.aktual != null && weekOf(x.tgl) === +w), days = [...new Set(rows.map(x => x.tgl))];
-  const g = Object.fromEntries(GRUP_MP.map(k => {
-    const its = D.mpPlan.filter(i => i.grup === k), ids = new Set(its.map(i => i.id));
-    return [k, { plan: its.reduce((s, i) => s + mpPlanW(i, w), 0), akt: days.length ? Math.round(rows.filter(x => ids.has(x.item)).reduce((s, x) => s + x.aktual, 0) / days.length) : null }];
-  }));
-  return { g, hari: days.length, plan: GRUP_MP.reduce((s, k) => s + g[k].plan, 0), akt: days.length ? Math.round(rows.reduce((s, x) => s + x.aktual, 0) / days.length) : null };
+  const R = mpRows().filter(r => weekOf(r.tgl) === +w), avg = f => R.length ? Math.round(R.reduce((s, r) => s + r[f], 0) / R.length) : null;
+  return { plan: mpPlanG(w, true) + mpPlanG(w, false), staf: mpPlanG(w, true), pek: mpPlanG(w, false), akt: avg('normal'), sn: avg('sn'), pn: avg('pn'), lembur: avg('lembur'), hari: R.length };
+}
+function mpSheet(rows) {
+  const hi = rows.findIndex(r => r.some(c => /^date$/i.test(String(c).trim())));
+  if (hi < 0) return [];
+  const H = rows[hi].map(c => String(c).trim().toLowerCase());
+  const BAKU = ['date', 'normal', 'lembur', 'updated_by', 'updated_at', 'staff_normal', 'staff_lembur', 'pekerja_normal', 'pekerja_lembur', 'detail'];
+  const col = k => { const i = H.indexOf(k); return i >= 0 ? i : BAKU.indexOf(k); }; // judul kolom angka bisa kosong di CSV → posisi baku
+  const by = new Map();
+  for (const r of rows.slice(hi + 1)) {
+    const c = k => String(r[col(k)] ?? '').trim(), n = k => { const v = parseFloat(c(k).replace(',', '.')); return isNaN(v) ? 0 : v; };
+    const t = tglTeks(c('date')); if (!t) continue;
+    let det = null; try { det = c('detail') ? JSON.parse(c('detail')) : null; } catch { det = null; }
+    by.set(t, { tgl: t, normal: n('normal'), lembur: n('lembur'), sn: n('staff_normal'), sl: n('staff_lembur'), pn: n('pekerja_normal'), pl: n('pekerja_lembur'), by: c('updated_by'), at: c('updated_at'), det });
+  }
+  return [...by.values()].sort((a, b) => a.tgl.localeCompare(b.tgl)); // tanggal yang diinput ulang → baris terakhir yang dipakai
+}
+async function mpLoad(manual) {
+  const id = drvId(mpSrc()); if (!id || mpBusy) return;
+  mpBusy = true; if (UI.view === 'sd' || UI.view === 'dash') render();
+  const base = `https://docs.google.com/spreadsheets/d/${id}/`;
+  try {
+    const sh = await drvTabs(base), t = sh.find(([n]) => /^\s*man ?power\s*$/i.test(n)) || sh.find(([n]) => /man ?power/i.test(n));
+    if (!t) throw new Error('Sheet "Manpower" tidak ada di file ini.');
+    const rows = mpSheet(await drvCsv(base, t[1], t[0]));
+    MPS = { src: id, at: new Date().toISOString(), rows, link: base + 'edit#gid=' + t[1], err: rows.length ? '' : 'Belum ada baris data (kolom "date") di sheet Manpower.' };
+  } catch (e) {
+    MPS = { src: id, rows: MPS.src === id ? MPS.rows : [], link: MPS.link, at: new Date().toISOString(), err: /fetch|network/i.test(e.message) ? 'Tidak bisa membaca Drive (offline, atau link belum dibagikan "Siapa saja yang memiliki link")' : e.message };
+  }
+  mpBusy = false;
+  try { localStorage.setItem(MP_KEY, JSON.stringify(MPS)); } catch { /* penyimpanan penuh */ }
+  render();
+  if (manual) toast(MPS.err || `${MPS.rows.length} hari data manpower dibaca dari Drive`);
+}
+const mpAuto = () => { const id = drvId(mpSrc()); if (id && !mpBusy && (!MPS.at || MPS.src !== id || Date.now() - new Date(MPS.at) > 6e5)) setTimeout(() => mpLoad(false)); };
+function mpSet() {
+  openDlg(`<h3>Link data manpower harian (Google Drive)</h3>
+    <label class="f">Link Google Sheet<input type="text" name="src" inputmode="url" value="${esc(D.settings.mpSrc || '')}" placeholder="${D.mpSrc ? 'Dari Sheet tim (biarkan kosong)' : 'https://docs.google.com/spreadsheets/d/…'}"></label>
+    <p class="muted" style="font-size:13px">Aplikasi membaca sheet <b>Manpower</b> (kolom date, normal, lembur, staff_normal, pekerja_normal, …) dan tidak menulis apa pun ke Drive. Akses link: "Siapa saja yang memiliki link" (Pelihat).
+    ${D.mpSrc ? '<br>Link tim sudah diatur admin (push_master.py --mp-link). Isi di sini hanya bila ingin memakai link lain di perangkat ini.' : '<br>Agar berlaku untuk semua anggota tim, admin menjalankan push_master.py dengan --mp-link.'}</p>
+    <div class="dlg-act"><span class="sp"></span><button value="cancel" class="btn" formnovalidate>Batal</button><button value="save" class="btn pri">Simpan</button></div>`, fd => {
+    const v = String(fd.get('src') || '').trim();
+    if (v && !drvId(v)) { toast('Link tidak dikenali – salin link dari tombol Bagikan'); return; }
+    D.settings.mpSrc = v; persist(); MPS = {}; render(); mpLoad(true);
+  });
 }
 // dokumen Drive: target = rencana SUBMIT (lewat bila belum submit); dokumen manual: target = rencana APPROVE
 const lewatDok = x => x.drive ? !x.tglSubmit && !!x.target && x.target < tgl() : x.status !== 'Approved' && !!x.target && x.target < tgl();
@@ -1620,62 +1672,69 @@ function vSD() {
   ${UI.sd === 'dok' ? vDok() : UI.sd === 'll' ? vLL() : vMp()}`;
 }
 
+const HARI = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+const hariOf = d => HARI[new Date(d + 'T00:00:00').getDay()];
+const mpCls = (a, p) => a == null || !p ? '' : a >= p ? 'ok' : a >= p * .8 ? 'warn' : 'bad';
 function vMp() {
-  if (!D.mpPlan.length) return '<div class="empty">Rencana manpower belum ada. Taruh <b>Man Power Tracking.xlsx</b> di folder yang sama dengan Excel LPS, lalu jalankan export_excel.py.</div>';
-  const d = UI.mpTgl || tgl(), w = weekOf(d), W = mpWeek(w), tot = mpHari(d), ada = D.mpPlan.some(it => mpAkt(d, it.id) != null);
-  const items = D.mpPlan.filter(it => UI.mpAll || mpPlanW(it, w) > 0 || mpAkt(d, it.id) != null);
-  const gHari = g => D.mpPlan.filter(i => i.grup === g).reduce((s, i) => s + (mpAkt(d, i.id) || 0), 0);
-  let list = '', lastG = '', lastS = null;
-  for (const it of items) {
-    if (it.grup !== lastG) { list += `<h3 class="mp-g">${esc(it.grup)}<small class="muted">rencana ${W.g[it.grup]?.plan ?? 0} · hari ini ${gHari(it.grup)}</small></h3>`; lastG = it.grup; lastS = null; }
-    if (it.sub !== lastS) { if (it.sub) list += `<div class="mp-s">${esc(it.sub)}</div>`; lastS = it.sub; }
-    const p = mpPlanW(it, w), a = mpAkt(d, it.id), st = a == null ? '' : a < p ? 'bad' : a > p ? 'info' : 'ok';
-    list += `<div class="mp-row"><div class="mp-n"><b>${esc(it.nama)}</b><small class="muted">rencana ${p} org</small></div>
-      <input type="number" min="0" max="999" step="1" inputmode="numeric" value="${a ?? ''}" data-mp="${esc(it.id)}" aria-label="Aktual ${esc(it.nama)}">
-      <span class="chip ${st}">${a == null ? '–' : (a - p > 0 ? '+' : '') + (a - p)}</span></div>`;
-  }
-  const weeks = D.meta.weeks.filter(x => x.w <= weekOf(tgl()) + 1 && x.w >= weekOf(tgl()) - 5);
-  return `
+  mpAuto();
+  const id = drvId(mpSrc());
+  const srcCard = id ? `<div class="card" style="padding:10px 14px"><div class="bar" style="margin:0">
+      <span class="muted" style="font-size:13px">Aktual dari laporan harian Drive (hanya baca) · ${mpBusy ? 'membaca…' : MPS.at && MPS.src === id ? `${mpRows().length} hari · dibaca ${new Date(MPS.at).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : 'belum dibaca'}</span>
+      <span style="flex:1"></span><button class="btn sm" data-act="mp-load" ${mpBusy ? 'disabled' : ''}>Muat ulang</button><button class="btn sm" data-act="mp-set">Link</button>${MPS.link && MPS.src === id ? `<a class="btn sm" href="${esc(MPS.link)}" target="_blank" rel="noopener">Buka sheet</a>` : ''}</div>
+      ${MPS.err && MPS.src === id ? `<p class="muted" style="color:var(--bad);margin:6px 0 0;font-size:13px">${esc(MPS.err)}</p>` : ''}</div>`
+    : `<div class="card"><b>Ambil aktual manpower dari laporan harian (Google Drive)</b><p class="muted" style="font-size:13px">Tempel link Google Sheet yang berisi sheet <b>Manpower</b> (akses link: "Siapa saja yang memiliki link" – Pelihat). Aktual dibandingkan dengan rencana harian MP-Master.</p><button class="btn pri" data-act="mp-set">Atur link manpower</button></div>`;
+  const noPlan = D.mpPlan.length ? '' : '<p class="muted" style="font-size:13px">Rencana MP-Master belum ada (Man Power Tracking.xlsx → export_excel.py → push_master.py); yang tampil hanya aktual.</p>';
+  const d = UI.mpTgl || tgl(), w = weekOf(d), P = mpPlanD(d), A = mpAktD(d), cw = weekOf(tgl());
+  const det = (o, l) => { const e = Object.entries(o || {}); return e.length ? `<div><h4 style="margin:6px 0 4px">${l}</h4>${e.map(([k, [n, lb]]) => `<div class="mp-row" style="grid-template-columns:1fr 4em 4em"><span>${esc(k)}</span><b class="n">${n}</b><small class="muted n">${lb ? '+' + lb + ' lembur' : ''}</small></div>`).join('')}</div>` : ''; };
+  // jendela grafik & tabel: 4 minggu ke belakang s/d minggu tanggal terpilih
+  const wA = Math.max(D.meta.weeks[0].w, (w ?? cw) - 3), wB = w ?? cw, dA = weekObj(wA)?.start, dB = [weekObj(wB)?.end, tgl()].filter(Boolean).sort()[0];
+  const hariL = []; for (let x = dA; x && dB && x <= dB; x = addDays(x, 1)) hariL.push(x);
+  const weeks = D.meta.weeks.filter(x => x.w <= cw && x.w >= Math.max(1, cw - 7));
+  return `${srcCard}${noPlan}
   <div class="bar">
     <button class="btn sm" data-act="mp-day" data-n="-1" aria-label="Hari sebelumnya">‹</button>
     <input type="date" value="${d}" data-ui="mpTgl">
     <button class="btn sm" data-act="mp-day" data-n="1" aria-label="Hari berikutnya">›</button>
-    <span class="muted">W${w}</span>
+    <span class="muted">${hariOf(d)} · W${w ?? '–'}</span>
   </div>
   <div class="grid kpis">
-    <div class="kpi"><b>${W.plan}</b><span>Rencana MP W${w} (MP-Master)</span></div>
-    <div class="kpi ${!ada ? 'warn' : tot >= W.plan ? 'ok' : 'bad'}"><b>${ada ? tot : '–'}</b><span>Aktual hari ini${ada ? ' · ' + pct(W.plan ? tot / W.plan : null) + ' rencana' : ' · belum diisi'}</span></div>
-    ${GRUP_MP.map(g => `<div class="kpi"><b>${ada ? gHari(g) : '–'}<small class="muted" style="font-size:13px"> / ${W.g[g].plan}</small></b><span>${g} aktual / rencana</span></div>`).join('')}
+    <div class="kpi"><b>${P.all}</b><span>Rencana harian W${w ?? '–'} (MP-Master)</span></div>
+    <div class="kpi ${A ? mpCls(A.normal, P.all) : 'warn'}"><b>${A ? A.normal : '–'}</b><span>${A ? `Aktual · ${pct(P.all ? A.normal / P.all : null)} rencana · selisih ${A.normal - P.all > 0 ? '+' : ''}${A.normal - P.all}` : 'Aktual belum dilaporkan'}</span></div>
+    <div class="kpi ${A ? mpCls(A.sn, P.staf) : ''}"><b>${A ? A.sn : '–'}<small class="muted" style="font-size:13px"> / ${P.staf}</small></b><span>Staf aktual / rencana</span></div>
+    <div class="kpi ${A ? mpCls(A.pn, P.pek) : ''}"><b>${A ? A.pn : '–'}<small class="muted" style="font-size:13px"> / ${P.pek}</small></b><span>Pekerja aktual / rencana</span></div>
+    <div class="kpi info"><b>${A ? A.lembur : '–'}</b><span>Orang lembur${A ? ` (staf ${A.sl} · pekerja ${A.pl})` : ''}</span></div>
   </div>
-  <div class="bar"><button class="btn" data-act="mp-copy">Salin aktual hari sebelumnya</button>
-    <label class="muted" style="font-size:13px"><input type="checkbox" data-act="mp-all" ${UI.mpAll ? 'checked' : ''} style="width:auto;min-height:0"> tampilkan semua aktivitas</label></div>
-  <div class="card mp-list">${list || '<p class="muted">Tidak ada aktivitas berencana minggu ini.</p>'}</div>
-  <div class="two">
-    <div class="card"><h3>Manpower loading – rencana vs aktual</h3>${mpChart()}</div>
-    <div class="card"><h3>Rekap mingguan (rata-rata harian)</h3>
-      <div class="scroll"><table class="tbl"><tr><th>Minggu</th>${GRUP_MP.map(g => `<th class="n">${g}</th>`).join('')}<th class="n">Total</th><th class="n">%</th></tr>
-      ${weeks.map(x => { const r = mpWeek(x.w); return `<tr${x.w === weekOf(tgl()) ? ' style="background:var(--warn-bg)"' : ''}><td>W${x.w}<br><small class="muted">${esc(x.label)}</small></td>${GRUP_MP.map(g => `<td class="n">${r.g[g].akt ?? '–'}<small class="muted"> / ${r.g[g].plan}</small></td>`).join('')}<td class="n"><b>${r.akt ?? '–'}</b><small class="muted"> / ${r.plan}</small></td><td class="n">${pct(r.akt != null && r.plan ? r.akt / r.plan : null)}</td></tr>`; }).reverse().join('')}
-      </table></div>
-      <p class="muted" style="font-size:12px">Aktual mingguan = rata-rata jumlah orang per hari dari hari yang ada input.</p></div>
-  </div>`;
+  ${A?.det ? `<details class="card"><summary><b>Rincian per jabatan · ${fmt(d)}</b> <small class="muted">${A.by ? 'dilaporkan ' + esc(A.by) : ''}${A.at ? ' · ' + esc(A.at) : ''}</small></summary><div class="two">${det(A.det.s, 'Staf')}${det(A.det.p, 'Pekerja')}</div></details>` : ''}
+  <div class="card"><h3>Rencana vs aktual harian · W${wA}–W${wB}</h3>${mpChart(hariL)}</div>
+  <div class="card"><h3>Harian · W${wA}–W${wB}</h3><div class="scroll"><table class="tbl">
+    <tr><th>Tanggal</th><th class="n">Rencana</th><th class="n">Aktual</th><th class="n">Selisih</th><th class="n">%</th><th class="n">Staf a/r</th><th class="n">Pekerja a/r</th><th class="n">Lembur</th><th>Input</th></tr>
+    ${[...hariL].reverse().map(x => { const p = mpPlanD(x), a = mpAktD(x), df = a ? a.normal - p.all : null;
+      return `<tr${x === d ? ' style="background:var(--warn-bg)"' : ''} data-act="mp-go" data-v="${x}" style="cursor:pointer"><td>${hariOf(x)} ${fmt(x)}<br><small class="muted">W${weekOf(x)}</small></td><td class="n">${p.all}</td><td class="n"><b>${a ? a.normal : '–'}</b></td>
+        <td class="n"${df != null && df < 0 ? ' style="color:var(--bad)"' : ''}>${df == null ? '' : (df > 0 ? '+' : '') + df}</td><td class="n">${a && p.all ? pct(a.normal / p.all) : '–'}</td>
+        <td class="n">${a ? a.sn : '–'}<small class="muted"> / ${p.staf}</small></td><td class="n">${a ? a.pn : '–'}<small class="muted"> / ${p.pek}</small></td><td class="n">${a ? a.lembur : ''}</td><td><small class="muted">${a ? esc(a.by) : x <= tgl() ? '<span style="color:var(--warn)">belum dilaporkan</span>' : ''}</small></td></tr>`; }).join('')}
+  </table></div><p class="muted" style="font-size:12px">Aktual = orang hadir (jam normal, staf + pekerja); lembur = orang yang lembur dari jumlah itu. Rencana MP-Master: grup STAF = staf, grup lain = pekerja; angka mingguan berlaku untuk tiap hari di minggu itu. Ketuk baris untuk melihat rincian tanggal tsb.</p></div>
+  <div class="card"><h3>Rekap mingguan (rata-rata harian)</h3><div class="scroll"><table class="tbl">
+    <tr><th>Minggu</th><th class="n">Rencana</th><th class="n">Aktual rata-rata</th><th class="n">%</th><th class="n">Staf a/r</th><th class="n">Pekerja a/r</th><th class="n">Hari dilaporkan</th></tr>
+    ${weeks.map(x => { const r = mpWeek(x.w); return `<tr${x.w === cw ? ' style="background:var(--warn-bg)"' : ''}><td>W${x.w}<br><small class="muted">${esc(x.label)}</small></td><td class="n">${r.plan}</td><td class="n"><b>${r.akt ?? '–'}</b></td><td class="n">${pct(r.akt != null && r.plan ? r.akt / r.plan : null)}</td>
+      <td class="n">${r.sn ?? '–'}<small class="muted"> / ${r.staf}</small></td><td class="n">${r.pn ?? '–'}<small class="muted"> / ${r.pek}</small></td><td class="n">${r.hari}</td></tr>`; }).reverse().join('')}
+  </table></div></div>`;
 }
-function mpChart() {
-  const ws = D.meta.weeks, W = 640, H = 220, L = 34, R = 10, T = 12, B = 26, n = ws.length;
-  const data = ws.map(x => ({ w: x.w, plan: mpWeek(x.w).plan, akt: mpWeek(x.w).akt }));
+function mpChart(hariL) {
+  if (!hariL.length) return '<p class="muted">Tidak ada tanggal.</p>';
+  const W = 640, H = 220, L = 34, R = 10, T = 12, B = 26, n = hariL.length;
+  const data = hariL.map(x => ({ d: x, plan: mpPlanD(x).all, akt: mpAktD(x)?.normal ?? null }));
   const max = Math.max(...data.map(x => Math.max(x.plan, x.akt || 0)), 10), bw = (W - L - R) / n;
-  const y = v => T + (H - T - B) * (1 - v / max), cw = weekOf(tgl());
+  const y = v => T + (H - T - B) * (1 - v / max), now = tgl();
   let g = '';
   for (const v of [0, .25, .5, .75, 1]) g += `<line x1="${L}" x2="${W - R}" y1="${y(max * v)}" y2="${y(max * v)}" stroke="var(--grid)"/><text x="${L - 5}" y="${y(max * v) + 4}" text-anchor="end">${Math.round(max * v)}</text>`;
   data.forEach((x, i) => {
-    const cx = L + bw * i + bw / 2;
-    g += `<rect x="${cx - bw * .35}" y="${y(x.plan)}" width="${bw * .7}" height="${H - B - y(x.plan)}" fill="var(--plan)" opacity="${x.w === cw ? .9 : .45}"><title>W${x.w}: rencana ${x.plan}</title></rect>`;
-    if (x.akt != null) g += `<circle cx="${cx}" cy="${y(x.akt)}" r="4" fill="var(--ok)" stroke="var(--surface)" stroke-width="1.5"><title>W${x.w}: aktual rata-rata ${x.akt}</title></circle>`;
-    if (i % 3 === 0) g += `<text x="${cx}" y="${H - 8}" text-anchor="middle">W${x.w}</text>`;
+    const x0 = L + bw * i, cx = x0 + bw / 2;
+    if (x.akt != null) g += `<rect x="${x0 + bw * .15}" y="${y(x.akt)}" width="${bw * .7}" height="${H - B - y(x.akt)}" fill="var(--${x.akt >= x.plan ? 'ok' : 'bad'})" opacity="${x.d === now ? .95 : .7}"><title>${fmt(x.d)}: aktual ${x.akt} / rencana ${x.plan}</title></rect>`;
+    if (x.d.endsWith('-01') || i === 0 || new Date(x.d + 'T00:00:00').getDay() === 1) g += `<text x="${cx}" y="${H - 8}" text-anchor="middle">${x.d.slice(8)}/${+x.d.slice(5, 7)}</text>`;
   });
-  const act = data.map((x, i) => x.akt == null ? null : `${L + bw * i + bw / 2},${y(x.akt)}`).filter(Boolean);
-  if (act.length > 1) g += `<polyline points="${act.join(' ')}" stroke="var(--ok)" stroke-width="2"/>`;
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Manpower loading">${g}</svg>
-    <div class="legend"><span><i style="background:var(--plan);opacity:.6"></i>Rencana (MP-Master)</span><span><i style="background:var(--ok)"></i>Aktual rata-rata</span></div>`;
+  g += `<polyline points="${data.map((x, i) => `${L + bw * i},${y(x.plan)} ${L + bw * (i + 1)},${y(x.plan)}`).join(' ')}" stroke="var(--plan)" stroke-width="2.5" fill="none"/>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Manpower harian rencana vs aktual">${g}</svg>
+    <div class="legend"><span><i style="background:var(--plan)"></i>Rencana harian (MP-Master)</span><span><i style="background:var(--ok)"></i>Aktual ≥ rencana</span><span><i style="background:var(--bad)"></i>Aktual &lt; rencana</span></div>`;
 }
 
 const DOK_FD = { '': 'Semua', open: 'Belum approve', lewat3: 'Submit > 3 hari', cw: 'Awaiting feedback (CW)', own: 'Awaiting owner', lewat: 'Lewat target', Draft: 'Draft', Submitted: 'Submitted', Revisi: 'Revisi / Not Approved', Rejected: 'Rejected', Approved: 'Approved' };
@@ -2190,6 +2249,9 @@ document.addEventListener('click', e => {
     case 'dok-grp': { const k = el.dataset.v; UI.dokTutup = UI.dokTutup.includes(k) ? UI.dokTutup.filter(x => x !== k) : [...UI.dokTutup, k]; render(); break; }
     case 'drv-set': drvSet(); break;
     case 'll-set': llSet(); break;
+    case 'mp-set': mpSet(); break;
+    case 'mp-load': mpLoad(true); break;
+    case 'mp-go': UI.mpTgl = el.dataset.v; render(); scrollTo({ top: 0, behavior: 'smooth' }); break;
     case 'll-load': llLoad(true); break;
     case 'pdf-ll': openDlg(pdfLLForm(), fd => printLL({ f: fd.get('f') || '', dis: fd.get('dis') || '', q: String(fd.get('q') || '').trim(), grp: fd.get('grp'), pic: fd.has('pic') })); break;
     case 'll-f': UI.llF = el.dataset.v; render(); break;
