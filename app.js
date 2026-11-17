@@ -1181,7 +1181,7 @@ function pdfLogForm() {
   <label class="f">Cari<input type="text" name="q" value="${esc(o.q)}" placeholder="task / masalah / tindakan"></label>
   <label class="f" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="all" value="1" ${o.all ? 'checked' : ''} style="width:auto;min-height:0"> Sertakan janji yang belum dilaporkan</label>
   <p class="muted" style="font-size:13px">Kertas A4 mendatar. Di jendela cetak pilih <b>Simpan sebagai PDF</b>.</p>
-  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="xls" class="btn">Excel</button><button value="save" class="btn pri">Buat PDF</button></div>`;
+  ${fPencetak()}<div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="xls" class="btn">Excel</button><button value="save" class="btn pri">Buat PDF</button></div>`;
 }
 function printLog(o) {
   if (o.to < o.from) [o.from, o.to] = [o.to, o.from];
@@ -1198,14 +1198,14 @@ function printLog(o) {
     return `${rs.filter(r => tercapai(r.x) === 'Tidak').length} janji tidak tercapai${wp.length ? ' · TIMWOODS: ' + wp.map(([k, a]) => `${esc(WASTE[k][0])} ${a.n}×${a.jo ? ' / ' + r1(a.jo) + ' jam-orang' : ''}`).join(', ') : ''}${rs.some(r => r.x.capaian == null) ? ` · ${rs.filter(r => r.x.capaian == null).length} belum dilaporkan` : ''}${par.length ? ' · Penyebab: ' + par.map(([k, v]) => `${esc(k)} ${v} (${pct(v / tot)})`).join(', ') : ''}`; };
   $('#print').innerHTML = groups.map(([g, rs]) => `<section class="pg dok lg">
     <header><div><b>Log Masalah Harian</b><span>${esc(D.meta.project)}</span></div>
-      <div class="pr-meta"><span>Periode: <b>${esc(per)}</b></span>${g ? `<span>PIC: <b>${esc(g)}</b></span>` : ''}<span>${esc(filt)}</span><span>Dicetak ${fmt(todayISO())}${D.sync.user ? ' oleh ' + esc(D.sync.user) : ''}</span></div></header>
+      <div class="pr-meta"><span>Periode: <b>${esc(per)}</b></span>${g ? `<span>PIC: <b>${esc(g)}</b></span>` : ''}<span>${esc(filt)}</span><span>${dicetak()}</span></div></header>
     <table><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows(rs)}</tbody></table>
     <p class="pr-n">${ringkas(rs)}${g ? '' : ` · Periode ini: ${S.n} janji, ${S.tidak} tidak tercapai${S.lap ? ' (' + pct(S.tidak / S.lap) + ' dari yang dilaporkan)' : ''}`}</p>
   </section>`).join('');
   const judul = document.title;
   document.title = ['Log_Masalah', o.from, o.to, o.pic || o.dis || ''].filter(Boolean).join('_').replace(/[\\/:*?"<>|\s]+/g, '-');
   addEventListener('afterprint', () => { document.title = judul; $('#print').innerHTML = ''; }, { once: true });
-  selesaiCetak();
+  selesaiCetak(`Daily Log aplikasi LPS · ${sumberTim()}`);
 }
 
 function ppcChart(dates) {
@@ -1497,7 +1497,9 @@ function drvSheet(name, gid, rows, id) {
       if (m) { scope = m[1].toUpperCase(); sub = ''; } else sub = s.replace(/^(method statement|jsa)\s*[-–]\s*/i, '');
       continue;
     }
-    const key = /^SBP-/i.test(no) ? no.toUpperCase() : no + '|' + desc;
+    // nomor yang sama bisa dipakai dokumen berbeda di seksi lain (mis. EL-01 di Fire Alarm & Electrical) → kunci = seksi + nomor;
+    // dalam satu seksi, nomor sama = revisi dokumen yang sama
+    const key = /^SBP-/i.test(no) ? [scope, sub, no.toUpperCase()].join('|') : sub + '|' + no + '|' + desc;
     if (!by.has(key)) by.set(key, { no, desc, scope: scope || ((no.match(/-(CSA|MEP)-/i) || [])[1] || '').toUpperCase(), sub, revs: [] });
     by.get(key).revs.push({ rev: +c(3) || 0, est: tglTeks(c(5)), sub: tglTeks(c(6)), cw: tglTeks(c(7)), own: tglTeks(c(8)), st: c(9), rem: c(10), pic: c(11), fl: urlOk(c(12)) });
   }
@@ -1516,6 +1518,8 @@ async function drvTabs(base) {
   const sh = [...html.matchAll(/\{name: "((?:[^"\\]|\\.)*)", pageUrl: "[^"]*", gid: "(\d+)"/g)]
     .map(m => [m[1].replace(/\\x([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/\\(.)/g, '$1'), m[2]]);
   if (!sh.length) throw new Error('Daftar sheet tidak terbaca. Pastikan akses link: "Siapa saja yang memiliki link" (Pelihat).');
+  const tt = (html.match(/<title>([^<]*)<\/title>/i) || [])[1] || '';
+  sh.title = tt.replace(/\s*[-–]\s*Google (Sheets|Spreadsheets?|Drive)\s*$/i, '').replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').trim();
   return sh;
 }
 const drvCsv = async (base, gid, n) => { const r = await fetch(base + 'gviz/tq?tqx=out:csv&headers=0&gid=' + gid); if (!r.ok) throw new Error(`Sheet ${n}: HTTP ${r.status}`); return parseCsv(await r.text()); };
@@ -1526,7 +1530,7 @@ async function drvLoad(manual) {
   try {
     const sh = await drvTabs(base);
     const docs = (await Promise.all(sh.map(async ([n, gid]) => drvSheet(n, gid, await drvCsv(base, gid, n), id)))).flat();
-    DRV = { src: id, at: new Date().toISOString(), docs, err: '' };
+    DRV = { src: id, at: new Date().toISOString(), docs, err: '', title: sh.title };
   } catch (e) {
     DRV = { src: id, docs: DRV.src === id ? DRV.docs : [], at: new Date().toISOString(), err: /fetch|network/i.test(e.message) ? 'Tidak bisa membaca Drive (offline, atau link belum dibagikan "Siapa saja yang memiliki link")' : e.message };
   }
@@ -1590,7 +1594,7 @@ async function llLoad(manual) {
   try {
     const sh = await drvTabs(base);
     const items = (await Promise.all(sh.map(async ([n, gid]) => llSheet(await drvCsv(base, gid, n)).map(x => ({ ...x, link: base + 'edit#gid=' + gid }))))).flat();
-    LLD = { src: id, at: new Date().toISOString(), items, err: items.length ? '' : 'Kolom "Material/Equipment" tidak ditemukan di file ini.' };
+    LLD = { src: id, at: new Date().toISOString(), title: sh.title, items, err: items.length ? '' : 'Kolom "Material/Equipment" tidak ditemukan di file ini.' };
   } catch (e) {
     LLD = { src: id, items: LLD.src === id ? LLD.items : [], at: new Date().toISOString(), err: /fetch|network/i.test(e.message) ? 'Tidak bisa membaca Drive (offline, atau link belum dibagikan "Siapa saja yang memiliki link")' : e.message };
   }
@@ -1637,7 +1641,7 @@ function pdfLLForm() {
   </div>
   <label class="f" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="pic" value="1" checked style="width:auto;min-height:0"> Sertakan kolom PIC / kontak vendor</label>
   <p class="muted" style="font-size:13px">Kertas A4 mendatar, urut dari yang paling mendesak. Di jendela cetak pilih <b>Simpan sebagai PDF</b>.</p>
-  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="xls" class="btn">Excel</button><button value="save" class="btn pri">Buat PDF</button></div>`;
+  ${fPencetak()}<div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="xls" class="btn">Excel</button><button value="save" class="btn pri">Buat PDF</button></div>`;
 }
 function printLL(o) {
   const L = llFilter(o);
@@ -1657,14 +1661,14 @@ function printLL(o) {
     return `${rs.length} item · ${c('lewat')} lewat tgl butuh · ${c('po')} PO terlambat · ${c('telat')} tiba setelah tgl butuh · ${c('kritis')} kritis · ${rs.filter(r => !r.i.appr).length} belum approve · ${rs.filter(r => !r.i.po).length} belum PO · ${c('tiba')} sudah tiba`; };
   $('#print').innerHTML = groups.map(([g, rs]) => `<section class="pg dok ll">
     <header><div><b>Tracking Long Lead Material</b><span>${esc(D.meta.project)}</span></div>
-      <div class="pr-meta"><span>Disiplin: <b>${esc(g)}</b></span><span>${esc(filt)} · status per ${fmt(tgl())}</span><span>Dicetak ${fmt(todayISO())}${D.sync.user ? ' oleh ' + esc(D.sync.user) : ''}</span></div></header>
+      <div class="pr-meta"><span>Disiplin: <b>${esc(g)}</b></span><span>${esc(filt)} · status per ${fmt(tgl())}</span><span>${dicetak()}</span></div></header>
     <table><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows(rs)}</tbody></table>
     <p class="pr-n">${ring(rs)}. PO terlambat = belum PO dan lewat batas PO (rencana PO, atau tgl butuh di site − lead time); kritis = butuh di site ≤ 30 hari atau batas PO ≤ 14 hari. Sumber: log long lead Drive, dibaca ${LLD.at ? fmt(LLD.at.slice(0, 10)) : '–'}.</p>
   </section>`).join('');
   const judul = document.title;
   document.title = ['Long_Lead', o.dis || 'Semua', o.f ? LL_F[o.f].replace(/\W+/g, '_') : '', todayISO()].filter(Boolean).join('_');
   addEventListener('afterprint', () => { document.title = judul; $('#print').innerHTML = ''; }, { once: true });
-  selesaiCetak();
+  selesaiCetak(`Google Sheet "${LLD.title || 'log long lead material'}" (hanya baca) · dibaca ${waktu(LLD.at)}`);
 }
 function vLL() {
   llAuto();
@@ -2014,7 +2018,7 @@ function pdfForm(r) {
   ${R.date ? `<label class="f">Tanggal<input type="date" name="tgl" value="${o.tgl}"></label>` : ''}
   <label class="f">PIC<select name="pic">${opt('', '', 'Semua PIC – 1 halaman per PIC')}${pics.map(p => opt(p, '')).join('')}</select></label>
   <p class="muted" style="font-size:13px">Daftar PIC mengikuti ${R.date ? 'tanggal' : 'minggu'} yang sedang dibuka. Di jendela cetak pilih <b>Simpan sebagai PDF</b>, lalu kirim ke PIC.${UI.fPrio ? ` Filter prioritas aktif: <b>${esc(FPRIO[UI.fPrio])}</b>.` : ''}${r === 'issue' ? ' Issue dikelompokkan per PIC kendala.' : ''}</p>
-  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="xls" class="btn">Excel</button><button value="save" class="btn pri">Buat PDF</button></div>`;
+  ${fPencetak()}<div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="xls" class="btn">Excel</button><button value="save" class="btn pri">Buat PDF</button></div>`;
 }
 function printReport(r, o) {
   const R = REPORTS[r], rows = R.rows(o).filter(x => x && (!o.pic || x.pic === o.pic));
@@ -2026,16 +2030,16 @@ function printReport(r, o) {
   const cell = v => esc(v ?? '').replace(/\n/g, '<br>');
   $('#print').innerHTML = Object.keys(groups).sort().map(pic => `<section class="pg">
     <header><div><b>${esc(R.title)}</b><span>${esc(D.meta.project)}</span></div>
-      <div class="pr-meta"><span>PIC: <b>${esc(pic)}</b></span><span>${esc(per)}</span><span>Dicetak ${fmt(todayISO())}${D.sync.user ? ' oleh ' + esc(D.sync.user) : ''}</span></div></header>
+      <div class="pr-meta"><span>PIC: <b>${esc(pic)}</b></span><span>${esc(per)}</span><span>${dicetak()}</span></div></header>
     <table><thead><tr><th>No</th>${R.head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
       <tbody>${groups[pic].map((c, i) => `<tr><td>${i + 1}</td>${c.map(v => `<td>${cell(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>
     <p class="pr-n">${groups[pic].length} baris</p>
-    <footer><div>Dibuat oleh<br><br><br>( ${esc(D.sync.user || '..................')} )</div><div>Diterima PIC<br><br><br>( ${esc(pic)} )</div></footer>
+    <footer><div>Dibuat oleh<br><br><br>( ${esc(PENCETAK || D.sync.user || '..................')} )</div><div>Diterima PIC<br><br><br>( ${esc(pic)} )</div></footer>
   </section>`).join('');
   const judul = document.title;
   document.title = [R.title.split(' ')[0], o.pic || 'Semua-PIC', R.date ? o.tgl : wo ? 'W' + wo.w + (rangeOn(o.week, o.week2) ? '-W' + o.week2 : '') : 'semua'].join('_').replace(/[\\/:*?"<>|\s]+/g, '-'); // nama file PDF
   addEventListener('afterprint', () => { document.title = judul; $('#print').innerHTML = ''; }, { once: true });
-  selesaiCetak();
+  selesaiCetak(`Data aplikasi LPS – task komitmen, kendala Make Ready, Daily Log${r === 'harian' ? '' : ', progress task'} · ${sumberTim()}`);
 }
 
 /* ---------- PDF Jadwal / Lookahead: 1 minggu atau beberapa minggu ke depan, bar per minggu, opsional task komitmen ---------- */
@@ -2057,7 +2061,7 @@ function pdfDokForm() {
     <label class="f">Susunan<select name="grp">${opt('kat', 'kat', '1 halaman per kategori')}${opt('satu', 'kat', 'Satu tabel')}</select></label>
   </div>
   <p class="muted" style="font-size:13px">Kertas A4 mendatar. Di jendela cetak pilih <b>Simpan sebagai PDF</b>.</p>
-  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="xls" class="btn">Excel</button><button value="save" class="btn pri">Buat PDF</button></div>`;
+  ${fPencetak()}<div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="xls" class="btn">Excel</button><button value="save" class="btn pri">Buat PDF</button></div>`;
 }
 function printDok(o) {
   const L = dokFilter({ ...o, sb: o.jn && o.jn === UI.dokJenis ? UI.dokSub : '' });
@@ -2073,14 +2077,14 @@ function printDok(o) {
   const ring = ds => { const c = f => ds.filter(DOK_FX[f]).length; return `${ds.length} dokumen · ${ds.filter(x => x.status === 'Approved').length} approved · ${c('cw')} awaiting CW · ${c('own')} awaiting owner · ${c('lewat3')} submit > 3 hari`; };
   $('#print').innerHTML = groups.map(([g, ds]) => `<section class="pg dok">
     <header><div><b>Tracking Dokumen</b><span>${esc(D.meta.project)}</span></div>
-      <div class="pr-meta"><span>Kategori: <b>${esc(g)}</b></span><span>${esc(filt)}</span><span>Dicetak ${fmt(todayISO())}${D.sync.user ? ' oleh ' + esc(D.sync.user) : ''}</span></div></header>
+      <div class="pr-meta"><span>Kategori: <b>${esc(g)}</b></span><span>${esc(filt)}</span><span>${dicetak()}</span></div></header>
     <table><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows(ds)}</tbody></table>
     <p class="pr-n">${ring(ds)} · umur = hari sejak submit aktual untuk dokumen yang belum ada keputusan</p>
   </section>`).join('');
   const judul = document.title;
   document.title = ['Tracking_Dokumen', o.jn || 'Semua', o.f ? DOK_FD[o.f].replace(/\W+/g, '_') : '', todayISO()].filter(Boolean).join('_');
   addEventListener('afterprint', () => { document.title = judul; $('#print').innerHTML = ''; }, { once: true });
-  selesaiCetak();
+  selesaiCetak(`${DRV.at ? `Google Sheet "${DRV.title || 'log dokumen'}" (hanya baca) · dibaca ${waktu(DRV.at)}` : ''}${D.dokumen.length ? `${DRV.at ? ' + ' : ''}${D.dokumen.length} dokumen manual di aplikasi` : ''}`);
 }
 function pdfJadwalForm() {
   const cw = weekOf(tgl()), from = UI.jFrom ?? cw, look = UI.jLook === 'all' ? '4' : UI.jLook;
@@ -2095,7 +2099,7 @@ function pdfJadwalForm() {
   </div>
   <label class="f" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="task" value="1" checked style="width:auto;min-height:0"> Sertakan task komitmen (kode · uraian · PIC) di bawah tiap pekerjaan</label>
   <p class="muted" style="font-size:13px">Kolom W… menandai minggu aktif tiap pekerjaan (maks. 8 minggu; "Semua jadwal" tanpa kolom minggu). Di jendela cetak pilih <b>Simpan sebagai PDF</b>.</p>
-  <div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="xls" class="btn">Excel</button><button value="save" class="btn pri">Buat PDF</button></div>`;
+  ${fPencetak()}<div class="dlg-act"><button value="cancel" class="btn" formnovalidate>Batal</button><button value="xls" class="btn">Excel</button><button value="save" class="btn pri">Buat PDF</button></div>`;
 }
 function printJadwal(o) {
   const { wF, wT, list } = jadwalList(o.from, o.look, o.dis);
@@ -2118,7 +2122,7 @@ function printJadwal(o) {
   const groups = o.grp === 'dis' ? [...new Set(list.map(p => p.disiplin))].map(d => [d, list.filter(p => p.disiplin === d)]) : [[o.dis || 'Semua disiplin', list]];
   $('#print').innerHTML = groups.map(([g, ps]) => `<section class="pg jdw">
     <header><div><b>Jadwal / Lookahead${o.look === '1' ? ' Mingguan' : o.look === 'all' ? '' : ' ' + o.look + ' Minggu'}</b><span>${esc(D.meta.project)}</span></div>
-      <div class="pr-meta"><span>Disiplin: <b>${esc(g)}</b></span><span>${esc(per)}</span><span>Dicetak ${fmt(todayISO())}${D.sync.user ? ' oleh ' + esc(D.sync.user) : ''}</span></div></header>
+      <div class="pr-meta"><span>Disiplin: <b>${esc(g)}</b></span><span>${esc(per)}</span><span>${dicetak()}</span></div></header>
     <table><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join('')}${gantt.map(w => `<th class="g${w.w === cw ? ' now' : ''}">W${w.w}<br><small>${fmt(w.start).slice(0, 6)}</small></th>`).join('')}</tr></thead>
       <tbody>${rowsOf(ps)}</tbody></table>
     <p class="pr-n">${ps.length} pekerjaan · bobot ${ps.reduce((s, p) => s + p.bobot, 0).toFixed(2)}%${gantt.length ? ' · kotak gelap = minggu aktif pekerjaan, kotak muda = minggu task, garis merah = minggu ini' : ''}</p>
@@ -2126,12 +2130,19 @@ function printJadwal(o) {
   const judul = document.title;
   document.title = ['Jadwal', o.look === 'all' ? 'semua' : `W${wF.w}${wT.w !== wF.w ? '-W' + wT.w : ''}`, o.dis || 'Semua'].join('_');
   addEventListener('afterprint', () => { document.title = judul; $('#print').innerHTML = ''; }, { once: true });
-  selesaiCetak();
+  selesaiCetak(`Master jadwal (Excel LPS, diekspor ${D.exportedAt ? waktu(D.exportedAt) : '–'})${TL().length ? ' + Timeline Schedule' + (D.tlEdit.length ? ` (${D.tlEdit.length} tanggal diubah)` : '') : ''}${o.task ? ' + task komitmen' : ''} · ${sumberTim()}`);
 }
 
 /* ---------- export: laporan yang disusun di #print dicetak (PDF) atau diubah jadi .xlsx (tombol Excel di dialog) ---------- */
-let XLS = false;
-function selesaiCetak() {
+let XLS = false, PENCETAK = '';
+const waktu = iso => iso ? new Date(iso).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '–';
+const dicetak = () => `Dicetak ${waktu(new Date().toISOString())} oleh ${esc(PENCETAK || D.sync.user || '–')}`;
+const sumberTim = () => syncOn() ? `Sheet tim, sinkron terakhir ${waktu(D.sync.lastOk)}` : 'data di perangkat ini (belum sinkron ke Sheet tim)';
+const fPencetak = () => `<label class="f">Dicetak oleh<input type="text" name="pencetak" required value="${esc(D.settings.pencetak || D.sync.user || '')}" placeholder="nama Anda"></label>`;
+// setiap halaman cetak / sheet Excel diberi baris sumber data + nama & waktu cetak
+function selesaiCetak(src) {
+  const ln = `<p class="pr-src">Sumber: ${esc(src || 'aplikasi LPS')} · Dicetak oleh <b>${esc(PENCETAK || D.sync.user || '–')}</b> · ${esc(waktu(new Date().toISOString()))}</p>`;
+  $('#print').querySelectorAll('section').forEach(sec => { const f = sec.querySelector('footer'); f ? f.insertAdjacentHTML('beforebegin', ln) : sec.insertAdjacentHTML('beforeend', ln); });
   if (!XLS) { setTimeout(() => print(), 60); return; } // beri waktu dialog tertutup
   try { xlsDariPrint(document.title); } finally { dispatchEvent(new Event('afterprint')); } // afterprint = kembalikan judul & kosongkan #print
 }
@@ -2150,7 +2161,7 @@ function xlsDariPrint(nama) {
       const grp = (tds.length === 1 && tds[0].colSpan > 1) || tr.classList.contains('pj') || tr.classList.contains('sb');
       rows.push({ s: grp ? 'grp' : 'cell', c: tds.map(td => td.classList.contains('g') ? (td.classList.contains('on') ? '■' : '') : xNum(teks(td))) });
     });
-    sec.querySelectorAll('.pr-n').forEach(x => rows.push({ s: 'note', c: [teks(x)] }));
+    sec.querySelectorAll('.pr-n, .pr-src').forEach(x => rows.push({ s: 'note', c: [teks(x)] }));
     return { name: nm, rows, freeze };
   });
   const a = document.createElement('a');
@@ -2169,7 +2180,8 @@ function openDlg(html, onSave) {
 }
 $('#dlg').addEventListener('close', () => {
   const dlg = $('#dlg');
-  if ((dlg.returnValue === 'save' || dlg.returnValue === 'xls') && dlgSubmit) { XLS = dlg.returnValue === 'xls'; try { dlgSubmit(new FormData($('#dlg-form'))); } finally { XLS = false; } }
+  if ((dlg.returnValue === 'save' || dlg.returnValue === 'xls') && dlgSubmit) { XLS = dlg.returnValue === 'xls';
+    const pc = $('#dlg-form').elements.pencetak; if (pc) { PENCETAK = pc.value.trim(); if (PENCETAK !== D.settings.pencetak) { D.settings.pencetak = PENCETAK; persist(); } } try { dlgSubmit(new FormData($('#dlg-form'))); } finally { XLS = false; } }
   dlg.returnValue = ''; dlgSubmit = null;
 });
 
