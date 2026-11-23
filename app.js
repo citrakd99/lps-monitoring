@@ -1486,7 +1486,7 @@ const urlOk = v => { v = String(v || '').trim(); return /^https:\/\/[^\s"'<>]+$/
 const stDrv = s => { s = s.toLowerCase(); return /reject/.test(s) ? 'Rejected' : /not approved|revis/.test(s) ? 'Revisi' : /approved|closed/.test(s) ? 'Approved' : /submit|open|review/.test(s) ? 'Submitted' : 'Draft'; };
 function drvSheet(name, gid, rows, id) {
   const hi = rows.findIndex(r => /document number/i.test(r[2] || ''));
-  if (hi < 0 || !rows.slice(0, hi).some(r => /log list/i.test(r[1] || ''))) return []; // bukan sheet log (Numbering, Monitoring, …)
+  if (hi < 0 || !/description/i.test(rows[hi][4] || '')) return []; // bukan sheet log (Numbering, Monitoring, …)
   const jenis = name.trim(), by = new Map();
   let scope = '', sub = '';
   for (const r of rows.slice(hi + 1)) {
@@ -1522,14 +1522,26 @@ async function drvTabs(base) {
   sh.title = tt.replace(/\s*[-–]\s*Google (Sheets|Spreadsheets?|Drive)\s*$/i, '').replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').trim();
   return sh;
 }
-const drvCsv = async (base, gid, n) => { const r = await fetch(base + 'gviz/tq?tqx=out:csv&headers=0&gid=' + gid); if (!r.ok) throw new Error(`Sheet ${n}: HTTP ${r.status}`); return parseCsv(await r.text()); };
+/* Utamakan export CSV: isi sel persis seperti di sheet. gviz menebak tipe per kolom dan MENGOSONGKAN teks di kolom yang mayoritas angka
+   (judul "LOG LIST", seksi "IFC - CSA" di kolom No hilang), jadi hanya dipakai sebagai cadangan. */
+const drvCsv = async (base, gid, n) => {
+  try {
+    const x = await fetch(base + 'export?format=csv&gid=' + gid);
+    if (x.ok && /csv/i.test(x.headers.get('content-type') || '')) return parseCsv(await x.text());
+  } catch { /* lanjut ke cadangan */ }
+  const r = await fetch(base + 'gviz/tq?tqx=out:csv&headers=0&gid=' + gid);
+  if (!r.ok) throw new Error(`Sheet ${n}: HTTP ${r.status}`);
+  return parseCsv(await r.text());
+};
 async function drvLoad(manual) {
   const id = drvId(dokSrc()); if (!id || drvBusy) return;
   drvBusy = true; if (UI.view === 'sd') render();
   const base = `https://docs.google.com/spreadsheets/d/${id}/`;
   try {
     const sh = await drvTabs(base);
-    const docs = (await Promise.all(sh.map(async ([n, gid]) => drvSheet(n, gid, await drvCsv(base, gid, n), id)))).flat();
+    const docs = [];
+    for (let i = 0; i < sh.length; i += 5) // bertahap agar tidak kena batas permintaan Google
+      docs.push(...(await Promise.all(sh.slice(i, i + 5).map(async ([n, gid]) => drvSheet(n, gid, await drvCsv(base, gid, n), id)))).flat());
     DRV = { src: id, at: new Date().toISOString(), docs, err: '', title: sh.title };
   } catch (e) {
     DRV = { src: id, docs: DRV.src === id ? DRV.docs : [], at: new Date().toISOString(), err: /fetch|network/i.test(e.message) ? 'Tidak bisa membaca Drive (offline, atau link belum dibagikan "Siapa saja yang memiliki link")' : e.message };
