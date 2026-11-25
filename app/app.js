@@ -498,7 +498,7 @@ function vDash() {
     <div class="kpi ${fu.some(t => t.prio === 'Urgent') ? 'bad' : fu.length ? 'warn' : ''}"><b>${fu.length}</b><span>Perlu follow up (urgent / tinggi / koordinasi)</span></div>
     ${mpItems().length || drvId(mpSrc()) ? (() => { mpAuto(); const a = mpAktD(tgl()) || mpRows().filter(r => r.tgl <= tgl()).at(-1), p = mpPlanD(a ? a.tgl : tgl()).all; return `<a class="kpi ${a ? mpCls(a.normal, p) : ''}" href="#sd" data-act="sd-tab" data-v="mp"><b>${a ? a.normal : '–'}<small class="muted" style="font-size:13px"> / ${p}</small></b><span>Manpower ${a ? (a.tgl === tgl() ? 'hari ini' : fmt(a.tgl)) : 'hari ini'} / rencana harian →</span></a>`; })() : ''}
     ${TL().length ? (() => { const w = tlWeek(), k = tlKosong(w).length; return `<a class="kpi ${k ? 'warn' : 'ok'}" href="#komit" data-act="tl-goto" data-w="${w}"><b>${k}<small class="muted" style="font-size:13px"> / ${tlAkt(w).length}</small></b><span>Aktivitas timeline W${w} belum ada task komitmen →</span></a>`; })() : ''}
-    ${(() => { const A = allDok(); return A.length ? `<div class="kpi ${A.some(lewatDok) ? 'bad' : 'warn'}"><b>${A.filter(x => x.status !== 'Approved').length}</b><span>Dokumen belum approve · ${A.filter(lewatDok).length} lewat target</span></div>` : ''; })()}
+    ${(() => { const A = allDok().filter(x => !isInfo(x)); return A.length ? `<div class="kpi ${A.some(lewatDok) ? 'bad' : 'warn'}"><b>${A.filter(belumApp).length}</b><span>Dokumen belum approve · ${A.filter(lewatDok).length} lewat target</span></div>` : ''; })()}
   </div>
 
   ${msCard()}
@@ -1315,7 +1315,10 @@ function exportCSV(what) {
 /* ---------- SUMBER DAYA: Manpower (MP-Master + aktual harian) & Dokumen (dokument tracking) ---------- */
 const GRUP_MP = ['STAF', 'CSA', 'MEP'];
 const DOK_ST = ['Draft', 'Submitted', 'Approved', 'Revisi', 'Rejected'];
-const dokChip = s => `<span class="chip ${({ Approved: 'ok', Submitted: 'info', Revisi: 'warn', Rejected: 'bad' })[s] || ''}">${esc(s)}</span>`;
+const dokChip = s => `<span class="chip ${({ Approved: 'ok', Submitted: 'info', Revisi: 'warn', Rejected: 'bad' })[s] || ''}">${esc(s === 'Info' ? 'For info' : s)}</span>`;
+// dokumen "Submitted - For Info" hanya untuk informasi: tidak dihitung sebagai dokumen pengajuan (tidak butuh approval)
+const isInfo = x => x.status === 'Info';
+const belumApp = x => x.status !== 'Approved' && !isInfo(x);
 function normMp(x) { x.aktual = nOr(x.aktual); x.catatan = x.catatan ?? ''; return x; }
 function normDok(x) {
   ['scope', 'nama', 'nomor', 'issue', 'pic', 'kode', 'link', 'riwayat'].forEach(f => { x[f] = x[f] ?? ''; });
@@ -1442,7 +1445,7 @@ function mpSet() {
   });
 }
 // dokumen Drive: target = rencana SUBMIT (lewat bila belum submit); dokumen manual: target = rencana APPROVE
-const lewatDok = x => x.drive ? !x.tglSubmit && !!x.target && x.target < tgl() : x.status !== 'Approved' && !!x.target && x.target < tgl();
+const lewatDok = x => isInfo(x) ? false : x.drive ? !x.tglSubmit && !!x.target && x.target < tgl() : x.status !== 'Approved' && !!x.target && x.target < tgl();
 // umur sejak submit aktual: berjalan sampai ada keputusan (Approved / Not approved / Rejected)
 const umurDok = x => x.tglSubmit && x.status === 'Submitted' ? days(x.tglSubmit, tgl()) : null;
 const umurChip = (x, pj) => { const n = umurDok(x); return n == null ? '' : `<span class="chip ${n > 14 ? 'bad' : n > 7 ? 'warn' : ''}">${n} hari${pj ? ' sejak submit' : ''}</span>`; };
@@ -1483,7 +1486,7 @@ function parseCsv(t) {
 }
 // hanya link http(s) yang dipakai (isi sel dari Drive tidak dipercaya mentah-mentah)
 const urlOk = v => { v = String(v || '').trim(); return /^https:\/\/[^\s"'<>]+$/i.test(v) ? v : ''; };
-const stDrv = s => { s = s.toLowerCase(); return /reject/.test(s) ? 'Rejected' : /not approved|revis/.test(s) ? 'Revisi' : /approved|closed/.test(s) ? 'Approved' : /submit|open|review/.test(s) ? 'Submitted' : 'Draft'; };
+const stDrv = s => { s = s.toLowerCase(); return /for info/.test(s) ? 'Info' : /reject/.test(s) ? 'Rejected' : /not approved|revis/.test(s) ? 'Revisi' : /approved|closed/.test(s) ? 'Approved' : /submit|open|review/.test(s) ? 'Submitted' : 'Draft'; };
 function drvSheet(name, gid, rows, id) {
   const hi = rows.findIndex(r => /document number/i.test(r[2] || ''));
   if (hi < 0 || !/description/i.test(rows[hi][4] || '')) return []; // bukan sheet log (Numbering, Monitoring, …)
@@ -1807,9 +1810,9 @@ function mpChart(hariL) {
     <div class="legend"><span><i style="background:var(--plan)"></i>Rencana harian (MP-Master)</span><span><i style="background:var(--ok)"></i>Aktual ≥ rencana</span><span><i style="background:var(--bad)"></i>Aktual &lt; rencana</span></div>`;
 }
 
-const DOK_FD = { '': 'Semua', open: 'Belum approve', lewat3: 'Submit > 3 hari', cw: 'Awaiting feedback (CW)', own: 'Awaiting owner', lewat: 'Lewat target', Draft: 'Draft', Submitted: 'Submitted', Revisi: 'Revisi / Not Approved', Rejected: 'Rejected', Approved: 'Approved' };
+const DOK_FD = { '': 'Semua', open: 'Belum approve', Info: 'For info', lewat3: 'Submit > 3 hari', cw: 'Awaiting feedback (CW)', own: 'Awaiting owner', lewat: 'Lewat target', Draft: 'Draft', Submitted: 'Submitted', Revisi: 'Revisi / Not Approved', Rejected: 'Rejected', Approved: 'Approved' };
 const dokKat = x => x.jenis || 'Manual';
-const dokCocok = (x, f) => !f || (DOK_FX[f] ? DOK_FX[f](x) : f === 'open' ? x.status !== 'Approved' : f === 'lewat' ? lewatDok(x) : x.status === f);
+const dokCocok = (x, f) => !f || (DOK_FX[f] ? DOK_FX[f](x) : f === 'open' ? belumApp(x) : f === 'lewat' ? lewatDok(x) : x.status === f);
 // daftar dokumen terfilter & terurut (dipakai tabel dan cetak PDF); o = { f, sc, jn, sb, q, pic }
 function dokFilter(o) {
   const all0 = allDok(), q = String(o.q || '').toLowerCase().trim(), urut = new Map();
@@ -1817,7 +1820,7 @@ function dokFilter(o) {
   return all0.filter(x => (!o.sc || x.scope === o.sc) && (!q || [x.nomor, x.nama, x.pic, x.sub, x.issue].join(' ').toLowerCase().includes(q)) && dokCocok(x, o.f)
       && (!o.jn || dokKat(x) === o.jn) && (!o.sb || x.sub === o.sb) && (!o.pic || (x.pic || '') === o.pic))
     .sort((a, b) => urut.get(dokKat(a)) - urut.get(dokKat(b)) || (urut.get(dokKat(a) + '|' + a.sub) ?? -1) - (urut.get(dokKat(b) + '|' + b.sub) ?? -1)
-      || (lewatDok(b) - lewatDok(a)) || ((a.status === 'Approved') - (b.status === 'Approved')) || String(a.target || '9999').localeCompare(String(b.target || '9999')));
+      || (lewatDok(b) - lewatDok(a)) || (!belumApp(a) - !belumApp(b)) || String(a.target || '9999').localeCompare(String(b.target || '9999')));
 }
 function vDok() {
   drvAuto();
@@ -1843,11 +1846,12 @@ function vDok() {
     : `<div class="card"><b>Ambil dokumen dari log Google Drive</b><p class="muted" style="font-size:13px">Tempel link Google Sheet log dokumen (akses link: "Siapa saja yang memiliki link" – Pelihat). Aplikasi hanya membaca, tidak mengubah file.</p><button class="btn pri" data-act="drv-set">Atur link Drive</button></div>`;
   return `${src}
   <div class="grid kpis">
-    <div class="kpi"><b>${all.length}</b><span>Total dokumen</span></div>
+    <div class="kpi"><b>${all.filter(x => !isInfo(x)).length}</b><span>Dokumen pengajuan</span></div>
     <div class="kpi ok"><b>${n('Approved')}</b><span>Approved</span></div>
     <div class="kpi info"><b>${n('Submitted')}</b><span>Menunggu review</span></div>
     <div class="kpi warn"><b>${n('Revisi') + n('Rejected')}</b><span>Not approved / Revisi / Rejected</span></div>
     <div class="kpi ${lw ? 'bad' : ''}"><b>${lw}</b><span>Lewat target</span></div>
+    ${all.some(isInfo) ? `<div class="kpi"><b>${all.filter(isInfo).length}</b><span>For info (tanpa approval, tidak dihitung)</span></div>` : ''}
     ${(() => { const a = all.filter(x => x.drive && x.status === 'Approved'), k = a.filter(x => !x.file).length; return a.length ? `<div class="kpi ${k ? 'warn' : 'ok'}"><b>${a.length - k}<small class="muted" style="font-size:13px"> / ${a.length}</small></b><span>Approved sudah ada link file</span></div>` : ''; })()}
   </div>
   <div class="prio-f">${Object.entries(FD).map(([k, l]) => `<button type="button" data-act="dok-f" data-v="${k}" class="${f === k ? 'on' : ''}">${l}${DOK_FX[k] ? ` <b>${all.filter(DOK_FX[k]).length}</b>` : ''}</button>`).join('')}</div>
@@ -1863,7 +1867,7 @@ function vDok() {
       for (const x of L) {
         const k = kat(x), tutup = UI.dokTutup.includes(k);
         if (k !== gK) {
-          const g = L.filter(d => kat(d) === k), bu = g.filter(d => d.status !== 'Approved').length, lw = g.filter(lewatDok).length;
+          const g = L.filter(d => kat(d) === k), bu = g.filter(belumApp).length, lw = g.filter(lewatDok).length;
           h += `<tr class="dok-grp" data-act="dok-grp" data-v="${esc(k)}"><td colspan="4"><span class="cv">${tutup ? '▸' : '▾'}</span> <b>${esc(k)}</b>
             <small class="muted">${g.length} dokumen · ${bu} belum approve${lw ? ` · <span style="color:var(--bad)">${lw} lewat</span>` : ''}</small></td></tr>`;
           gK = k; gS = null;
@@ -1885,7 +1889,7 @@ function vDok() {
     : `<div class="empty">${drvBusy ? 'Membaca log dokumen dari Drive…' : 'Belum ada dokumen untuk filter ini.'}</div>`}
   <button class="btn pri fab" data-act="dok-new">+ Dokumen</button>`;
 }
-const dokStChip = x => x.drive && x.stAsli !== x.status ? `<span class="chip ${({ Approved: 'ok', Submitted: 'info', Revisi: 'warn', Rejected: 'bad' })[x.status] || ''}">${esc(x.stAsli)}</span>` : dokChip(x.status);
+const dokStChip = x => x.drive && x.stAsli !== x.status ? `<span class="chip ${({ Approved: 'ok', Submitted: 'info', Revisi: 'warn', Rejected: 'bad', Info: '' })[x.status] || ''}">${esc(x.stAsli)}</span>` : dokChip(x.status);
 /* detail satu dokumen (dialog) – dokumen Drive hanya baca, dokumen manual bisa diubah statusnya */
 function dokInfo(id) {
   const x = allDok().find(d => d.id === id); if (!x) return;
@@ -2086,7 +2090,7 @@ function printDok(o) {
     return sh + `<tr><td>${++n}</td><td>${esc(x.nomor || '–')}</td><td>${x.rev ?? 0}</td><td>${esc(x.nama)}</td><td>${fmt(x.target) || ''}</td><td>${fmt(x.tglSubmit) || ''}</td>
       <td>${x.drive ? fmt(x.cw) || '' : ''}</td><td>${x.drive ? fmt(x.own) || '' : fmt(x.tglApprove) || ''}</td><td class="u${u > 14 ? ' bad' : u > 7 ? ' warn' : ''}">${u ?? ''}</td>
       <td>${esc(x.stAsli || x.status)}${lewatDok(x) ? ' <b>(lewat)</b>' : ''}</td><td class="rm">${esc(x.issue || '')}</td><td>${esc(x.pic || '')}</td></tr>`; }).join(''); };
-  const ring = ds => { const c = f => ds.filter(DOK_FX[f]).length; return `${ds.length} dokumen · ${ds.filter(x => x.status === 'Approved').length} approved · ${c('cw')} awaiting CW · ${c('own')} awaiting owner · ${c('lewat3')} submit > 3 hari`; };
+  const ring = ds => { const c = f => ds.filter(DOK_FX[f]).length, fi = ds.filter(isInfo).length; return `${ds.length - fi} dokumen pengajuan${fi ? ` (+${fi} for info, tidak dihitung)` : ''} · ${ds.filter(x => x.status === 'Approved').length} approved · ${c('cw')} awaiting CW · ${c('own')} awaiting owner · ${c('lewat3')} submit > 3 hari`; };
   $('#print').innerHTML = groups.map(([g, ds]) => `<section class="pg dok">
     <header><div><b>Tracking Dokumen</b><span>${esc(D.meta.project)}</span></div>
       <div class="pr-meta"><span>Kategori: <b>${esc(g)}</b></span><span>${esc(filt)}</span><span>${dicetak()}</span></div></header>
